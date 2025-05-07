@@ -91,6 +91,9 @@
    
    项目依赖LLM和TTS在线API服务
 
+   本项目支持两种方式配置API密钥：
+
+   ### 方式一：直接在config.py中配置（不推荐）
    通过修改`config.py`中的对应字段配置请求路径和密钥
 
     ```
@@ -104,6 +107,33 @@
     TTS_API_KEY = "YOUR_MINIMAX_API_KEY"
     ```
     按照MiniMax官方文档配置 https://platform.minimaxi.com/document/Voice%20Cloning?key=66719032a427f0c8a570165b
+
+   ### 方式二：使用独立的api_config.json文件（推荐）
+   
+   为了避免API密钥泄露，项目支持从独立的JSON文件读取API配置：
+
+   1. 首次运行时，系统会自动在项目根目录生成两个文件：
+      - `api_config.json` - 实际使用的API配置文件（本地使用）
+      - `api_config_template.json` - 不含实际API密钥的模板（可安全上传至GitHub）
+   
+   2. 在`api_config.json`中填入你的实际API密钥：
+      ```json
+      {
+        "xai-grok:free but training": {
+          "name": "xai-grok",
+          "description": "Grok-3-beta(X.AI)",
+          "base_url": "https://api.x.ai/v1",
+          "api_key": "你的API密钥",
+          "model_id": "grok-3-beta"
+        },
+        // ... 其他模型配置 ...
+      }
+      ```
+
+   3. 配置GitHub安全发布：
+      - 将 `api_config.json` 添加到 `.gitignore` 文件中
+      - 只上传 `api_config_template.json` 至GitHub仓库
+      - 保护你的其他配置文件中的API密钥信息
 
 ## 使用说明
 
@@ -157,7 +187,7 @@
 ### 导入论文
 1. 点击侧边栏的"导入论文"按钮
 2. 选择PDF文件导入
-3. 点击“继续”，等待处理完成（包括翻译和索引构建）
+3. 点击"继续"，等待处理完成（包括翻译和索引构建）
 4. 导入的PDF会存放到data文件夹中，也可以将多篇PDF放入data文件夹，程序会检测未处理的文件批量处理
 
     ![](assets/upload_page.jpg)

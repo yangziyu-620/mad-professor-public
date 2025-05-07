@@ -190,10 +190,32 @@ class ExtraInfoProcessor:
         if self.abstract_text:
             user_prompt += f"论文摘要背景:\n{self.abstract_text}\n\n"
         
+        # 限制章节内容的长度，以减少token使用
+        max_content_length = 3000  # 设置一个合理的最大字符数限制
         if combined_text:
-            user_prompt += f"章节内容:\n{combined_text}\n\n"
+            if len(combined_text) > max_content_length:
+                # 取大致前2/3和后1/3的内容，同时保持一定的上下文
+                two_thirds = int(max_content_length * 2/3)
+                one_third = max_content_length - two_thirds
+                
+                front_content = combined_text[:two_thirds]
+                back_content = combined_text[-one_third:] if len(combined_text) > one_third else ""
+                
+                user_prompt += f"章节内容(节选前部分):\n{front_content}\n\n"
+                if back_content:
+                    user_prompt += f"章节内容(节选后部分):\n{back_content}\n\n"
+                
+                self.logger.info(f"章节 {section.get('title', '未命名章节')} 内容过长，已截取部分内容用于总结生成")
+            else:
+                user_prompt += f"章节内容:\n{combined_text}\n\n"
             
+        # 限制子章节摘要的内容长度
         if children_summaries_text:
+            max_children_length = 1500  # 为子章节摘要设置一个合理的最大长度
+            if len(children_summaries_text) > max_children_length:
+                children_summaries_text = children_summaries_text[:max_children_length] + "...(更多子章节内容省略)"
+                self.logger.info(f"章节 {section.get('title', '未命名章节')} 子章节摘要过长，已截取")
+            
             user_prompt += f"{children_summaries_text}\n\n"
             
         user_prompt += "请根据要求生成这个章节的总结，只需输出总结文段，无需任何额外的解释说明:"
@@ -293,11 +315,25 @@ class ExtraInfoProcessor:
         if not text_content:
             return []
         
+        # 对过长的文本内容进行截断，以减少token使用量
+        max_content_length = 1500  # 文本段落的最大长度限制
+        if len(text_content) > max_content_length:
+            # 保留文本的前部分，这通常包含段落的主题句和核心内容
+            text_content = text_content[:max_content_length] + "...(内容过长，已截断)"
+            self.logger.info(f"文本内容过长，已截断至{max_content_length}字符用于问题生成")
+        
+        # 对章节摘要也进行长度限制
+        max_summary_length = 500  # 章节摘要的最大长度限制
+        summary_content = section_summary
+        if section_summary and len(section_summary) > max_summary_length:
+            summary_content = section_summary[:max_summary_length] + "...(摘要过长，已截断)"
+            self.logger.info("章节摘要过长，已截断用于问题生成")
+        
         # 读取问题生成提示词
         system_prompt = self._read_file(QUESTION_PROMPT_PATH)
         
         # 构建用户提示词
-        user_prompt = f"上下文背景信息：{section_summary}\n需要生成问题的论文段落：{text_content}\n\n请根据要求生成问题："
+        user_prompt = f"上下文背景信息：{summary_content}\n需要生成问题的论文段落：{text_content}\n\n请根据要求生成问题："
         
         # 调用LLM生成问题
         messages = [
@@ -327,6 +363,19 @@ class ExtraInfoProcessor:
         if not caption:
             return []
         
+        # 限制图表说明的长度
+        max_caption_length = 800  # 图表说明的最大长度限制
+        if len(caption) > max_caption_length:
+            caption = caption[:max_caption_length] + "...(说明过长，已截断)"
+            self.logger.info(f"{graph_type}说明过长，已截断至{max_caption_length}字符用于问题生成")
+        
+        # 限制章节摘要的长度
+        max_summary_length = 400  # 章节摘要的最大长度限制
+        summary_content = section_summary
+        if section_summary and len(section_summary) > max_summary_length:
+            summary_content = section_summary[:max_summary_length] + "...(摘要过长，已截断)"
+            self.logger.info("章节摘要过长，已截断用于图表问题生成")
+        
         # 读取问题生成提示词
         system_prompt = self._read_file(GRAPH_QUESTION_PROMPT_PATH)
         
@@ -334,7 +383,7 @@ class ExtraInfoProcessor:
         graph_type_text = "图片" if graph_type == "figure" else "表格"
         
         # 构建用户提示词
-        user_prompt = f"上下文背景信息：{section_summary}\n需要生成问题的{graph_type_text}描述：{caption}\n\n请根据要求生成问题："
+        user_prompt = f"上下文背景信息：{summary_content}\n需要生成问题的{graph_type_text}描述：{caption}\n\n请根据要求生成问题："
         
         # 调用LLM生成问题
         messages = [
@@ -409,6 +458,23 @@ class ExtraInfoProcessor:
         if not formula:
             return ""
 
+        # 限制公式前后文本的长度
+        max_context_length = 700  # 前后文本的最大长度限制
+        if context_before and len(context_before) > max_context_length:
+            context_before = context_before[-max_context_length:] + "...(前文过长，已截断)"
+            self.logger.info(f"公式前文本过长，已截断至{max_context_length}字符")
+            
+        if context_after and len(context_after) > max_context_length:
+            context_after = context_after[:max_context_length] + "...(后文过长，已截断)"
+            self.logger.info(f"公式后文本过长，已截断至{max_context_length}字符")
+        
+        # 限制章节摘要长度
+        max_summary_length = 400  # 章节摘要的最大长度限制
+        summary_content = section_summary
+        if section_summary and len(section_summary) > max_summary_length:
+            summary_content = section_summary[:max_summary_length] + "...(摘要过长，已截断)"
+            self.logger.info("章节摘要过长，已截断用于公式解析")
+
         # 读取系统提示词
         system_prompt = self._read_file(FORMULA_ANALYSIS_PROMPT_PATH)
 
@@ -416,7 +482,7 @@ class ExtraInfoProcessor:
         user_prompt = f"""请对下列公式进行详细解读，并给出它在论文中的作用和意义。需要参考以下信息：
 
         章节背景摘要：
-        {section_summary}
+        {summary_content}
 
         公式前的文本上下文：
         {context_before}

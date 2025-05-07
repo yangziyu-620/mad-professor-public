@@ -3,7 +3,9 @@ import shutil
 import os
 
 import requests
-from modelscope import snapshot_download
+# 从modelscope和huggingface都导入下载函数
+from modelscope import snapshot_download as ms_snapshot_download
+from huggingface_hub import snapshot_download as hf_snapshot_download
 
 
 def download_json(url):
@@ -32,6 +34,10 @@ def download_and_modify_json(url, local_filename, modifications):
 
 
 if __name__ == '__main__':
+    root_dir = os.path.dirname(os.path.abspath(__file__))  # 当前脚本所在目录
+    local_model_dir = os.path.join(root_dir, 'models')     # 根目录下 models 文件夹
+
+    # 需要下载的模型文件模式
     mineru_patterns = [
         # "models/Layout/LayoutLMv3/*",
         "models/Layout/YOLO/*",
@@ -41,8 +47,39 @@ if __name__ == '__main__':
         # "models/TabRec/TableMaster/*",
         # "models/TabRec/StructEqTable/*",
     ]
-    model_dir = snapshot_download('opendatalab/PDF-Extract-Kit-1.0', allow_patterns=mineru_patterns)
-    layoutreader_model_dir = snapshot_download('ppaanngggg/layoutreader')
+    
+    # 使用HuggingFace下载模型
+    print(f"正在从HuggingFace下载PDF提取模型到目录: {local_model_dir}")
+    model_dir = hf_snapshot_download(
+        repo_id='opendatalab/PDF-Extract-Kit-1.0',
+        allow_patterns=mineru_patterns,
+        local_dir=local_model_dir,
+        max_workers=4  # 适当增加线程数以提高下载速度
+    )
+    
+    print(f"正在从HuggingFace下载layoutreader模型到目录: {local_model_dir}")
+    layoutreader_model_dir = hf_snapshot_download(
+        repo_id='hantian/layoutreader',
+        local_dir=local_model_dir,
+        max_workers=4
+    )
+    
+    # ModelScope下载方式（作为备选，默认注释掉）
+    """
+    print(f"正在从ModelScope下载PDF提取模型到目录: {local_model_dir}")
+    model_dir = ms_snapshot_download(
+        'opendatalab/PDF-Extract-Kit-1.0',
+        allow_patterns=mineru_patterns,
+        local_dir=local_model_dir
+    )
+    
+    print(f"正在从ModelScope下载layoutreader模型到目录: {local_model_dir}")
+    layoutreader_model_dir = ms_snapshot_download(
+        'ppaanngggg/layoutreader',
+        local_dir=local_model_dir
+    )
+    """
+    
     model_dir = model_dir + '/models'
     print(f'model_dir is: {model_dir}')
     print(f'layoutreader_model_dir is: {layoutreader_model_dir}')

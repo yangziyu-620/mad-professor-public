@@ -183,6 +183,7 @@ class VoiceInputThread(QThread):
     def _on_vad_stop(self):
         """检测到语音活动结束"""
         print("检测到语音活动结束")
+        self.msleep(1000)
         self.vad_stopped.emit()
     
     def cleanup(self):

@@ -4,6 +4,7 @@ import shutil
 from PyQt6.QtCore import QObject, pyqtSignal
 from pipeline import Pipeline
 from threads import ProcessingThread
+from processor.translation_history import TranslationHistory
 
 class DataManager(QObject):
     """
@@ -21,6 +22,7 @@ class DataManager(QObject):
     processing_finished = pyqtSignal(str)                    # 处理完成的论文ID
     processing_error = pyqtSignal(str, str)                  # (论文ID, 错误信息)
     queue_updated = pyqtSignal(list)                         # 队列更新信号
+    translation_updated = pyqtSignal(str, str, str, str)       # (node_id, new_text, lang, paper_id)
     
     def __init__(self, base_dir=None):
         """初始化数据管理器"""
@@ -38,6 +40,9 @@ class DataManager(QObject):
         
         # 初始化处理管线
         self._init_pipeline()
+        
+        # 初始化翻译历史管理器
+        self.translation_history = TranslationHistory(self.output_dir)
     
     # ========== 初始化相关方法 ==========
     
@@ -72,12 +77,171 @@ class DataManager(QObject):
             if os.path.exists(index_path):
                 with open(index_path, 'r', encoding='utf-8') as f:
                     self.papers_index = json.load(f)
+                
+                # 为没有领域字段的论文自动分类
+                papers_updated = False
+                for paper in self.papers_index:
+                    if 'field' not in paper or not paper['field']:
+                        paper['field'] = self._classify_paper_field(paper)
+                        papers_updated = True
+                
+                # 如果有更新，保存回文件
+                if papers_updated:
+                    with open(index_path, 'w', encoding='utf-8') as f:
+                        json.dump(self.papers_index, f, ensure_ascii=False, indent=2)
+                
                 self.message.emit(f"成功从 {index_path} 加载论文索引")
                 self.papers_loaded.emit(self.papers_index)
             else:
                 self.message.emit(f"索引文件不存在: {index_path}")
         except Exception as e:
             self.loading_error.emit(f"加载论文索引失败: {str(e)}")
+    
+    def _classify_paper_field(self, paper):
+        """
+        根据论文标题和ID自动分类论文领域
+        
+        Args:
+            paper: 论文数据字典
+            
+        Returns:
+            str: 论文领域分类
+        """
+        # 获取标题，优先使用英文标题，因为更准确
+        title = paper.get('title', '') or paper.get('translated_title', '') or paper.get('id', '')
+        title = title.lower()
+        
+        # 尝试获取论文摘要和内容
+        content_text = ""
+        paper_id = paper.get('id', '')
+        
+        # 尝试加载论文内容以提取更多关键词
+        try:
+            paths = paper.get('paths', {})
+            if 'article_en' in paths:
+                en_path = paths.get('article_en', '')
+                full_path = os.path.join(self.output_dir, en_path)
+                if os.path.exists(full_path):
+                    try:
+                        with open(full_path, 'r', encoding='utf-8') as f:
+                            content = f.read()
+                            # 只取前2000个字符，通常包含摘要和引言部分
+                            content_text = content[:2000].lower()
+                    except:
+                        pass
+        except:
+            pass
+        
+        # 关键词映射到领域 (扩展关键词列表)
+        field_keywords = {
+            'LLM': [
+                'llm', 'language model', 'gpt', 'large language', 'bert', 'transformer', 
+                'preference optimization', 'reward model', 'tokenizer', 'prompt', 'chatgpt',
+                'embedding', 'attention', 'fine-tuning', 'instruction', 'text generation'
+            ],
+            '多模态假新闻检测': [
+                'fake news', 'disinformation', 'misinformation', 'detection', 'multi-modal', 
+                'multimodal', 'vldbench', 'multi-view', 'multimedia', 'rumor', 'falsehood',
+                'social media', 'twitter', 'weibo', 'factcheck', 'verification'
+            ],
+            '图神经网络': [
+                'graph', 'gnn', 'neural network', 'node generation', 'graph neural', 
+                'graph convolutional', 'gcn', 'graph attention', 'gat', 'message passing',
+                'node classification', 'link prediction', 'graph embedding', 'graphsage'
+            ],
+            '序列模型': [
+                'sequence', 'mamba', 'hippo', 'recurrent', 'memory', 'polynomial', 
+                'linear-time', 'time series', 'state space', 'rnn', 'lstm', 'gru',
+                'sequential', 'autoregressive', 'markov', 'hidden state'
+            ],
+            '强化学习': [
+                'reinforcement', 'rl', 'reward', 'policy', 'agent', 'environment', 
+                'q-learning', 'dqn', 'ppo', 'a3c', 'mdp', 'markov decision', 
+                'monte carlo', 'temporal difference', 'td'
+            ],
+            '计算机视觉': [
+                'vision', 'image', 'object detection', 'segmentation', 'recognition', 
+                'cnn', 'convolutional', 'yolo', 'rcnn', 'faster rcnn', 'mask rcnn',
+                'optical flow', 'pose estimation', 'scene understanding'
+            ],
+            '自然语言处理': [
+                'nlp', 'natural language', 'text', 'sentiment', 'information extraction', 
+                'summarization', 'translation', 'named entity', 'ner', 'pos tagging',
+                'parsing', 'word embedding', 'word2vec', 'glove', 'fasttext'
+            ],
+            '多模态学习': [
+                'multimodal', 'multi-modal', 'cross-modal', 'image-text', 'vision-language',
+                'audio-visual', 'multimedia', 'fusion', 'alignment', 'clip', 'contrastive learning'
+            ]
+        }
+        
+        # 记录每个领域的匹配分数
+        scores = {field: 0 for field in field_keywords}
+        
+        # 计算标题中的关键词匹配分数 (权重更高)
+        for field, keywords in field_keywords.items():
+            for keyword in keywords:
+                if keyword.lower() in title:
+                    scores[field] += 3  # 标题匹配得3分
+        
+        # 计算内容中的关键词匹配分数
+        if content_text:
+            for field, keywords in field_keywords.items():
+                for keyword in keywords:
+                    if keyword.lower() in content_text:
+                        scores[field] += 1  # 内容匹配得1分
+        
+        # 如果有匹配，返回得分最高的领域
+        max_score = max(scores.values())
+        if max_score > 0:
+            # 找出得分最高的所有领域
+            top_fields = [field for field, score in scores.items() if score == max_score]
+            # 如果有多个最高分，选第一个
+            return top_fields[0]
+        
+        # 如果没有关键词匹配，尝试从ID中提取会议信息进行分类
+        if 'SIGIR' in paper_id or 'TKDE' in paper_id:
+            if 'fake news' in title or 'detection' in title:
+                return '多模态假新闻检测'  # 信息检索和知识工程期刊/会议常见假新闻相关论文
+            return '信息检索'
+        
+        if 'AAAI' in paper_id or 'NIPS' in paper_id or 'NeurIPS' in paper_id:
+            # 进一步检查AAAI/NIPS论文的领域
+            if 'graph' in title:
+                return '图神经网络'
+            if 'language model' in title or 'llm' in title:
+                return 'LLM'
+            if 'sequence' in title or 'recurrent' in title or 'memory' in title:
+                return '序列模型'
+            return '人工智能'
+        
+        if 'CVPR' in paper_id or 'ICCV' in paper_id or 'ECCV' in paper_id:
+            return '计算机视觉'
+            
+        if 'ACL' in paper_id or 'EMNLP' in paper_id or 'NAACL' in paper_id:
+            return '自然语言处理'
+        
+        # 默认返回"其他"分类
+        return '其他'
+    
+    def get_papers_by_field(self):
+        """
+        按领域分类返回论文数据
+        
+        Returns:
+            dict: 按领域分组的论文字典，格式为 {领域: [论文1, 论文2, ...]}
+        """
+        if not self.papers_index:
+            return {}
+            
+        field_groups = {}
+        for paper in self.papers_index:
+            field = paper.get('field', '未分类')
+            if field not in field_groups:
+                field_groups[field] = []
+            field_groups[field].append(paper)
+            
+        return field_groups
     
     # ========== 论文内容加载 ==========
     
@@ -624,6 +788,28 @@ class DataManager(QObject):
         # 重新加载论文索引
         self.load_papers_index()
         
+        # 为新处理完成的论文自动分类
+        index_path = os.path.join(self.output_dir, "papers_index.json")
+        if os.path.exists(index_path):
+            try:
+                # 读取当前索引
+                with open(index_path, 'r', encoding='utf-8') as f:
+                    papers_index = json.load(f)
+                
+                # 查找并更新新处理的论文的领域
+                for paper in papers_index:
+                    if paper['id'] == paper_id and ('field' not in paper or not paper['field']):
+                        paper['field'] = self._classify_paper_field(paper)
+                        
+                        # 保存更新后的索引
+                        with open(index_path, 'w', encoding='utf-8') as f:
+                            json.dump(papers_index, f, ensure_ascii=False, indent=2)
+                        
+                        self.message.emit(f"已自动为论文 {paper_id} 分类为: {paper['field']}")
+                        break
+            except Exception as e:
+                self.message.emit(f"自动分类论文时出错: {str(e)}")
+        
         # 继续处理下一个（如果未暂停）
         if not self.is_paused:
             self.process_next_in_queue()
@@ -725,3 +911,459 @@ class DataManager(QObject):
     def set_ai_manager(self, ai_manager):
         """设置AI管理器引用"""
         self.ai_manager = ai_manager
+
+    def update_translation(self, paper_id, node_id, original_text, edited_text, lang="zh"):
+        """更新翻译并保存历史记录
+        
+        Args:
+            paper_id: 论文ID
+            node_id: 节点ID
+            original_text: 原始文本
+            edited_text: 编辑后文本
+            lang: 语言，默认为中文
+            
+        Returns:
+            bool: 更新成功返回True，否则返回False
+        """
+        try:
+            # 1. 保存编辑历史
+            self.translation_history.save_edit(
+                paper_id, node_id, original_text, edited_text, lang
+            )
+            
+            # 2. 更新RAG树文件中的翻译
+            if self.update_rag_tree_translation(paper_id, node_id, edited_text, lang):
+                print(f"成功更新RAG树中的翻译: {paper_id}/{node_id}")
+                
+                # 3. 尝试更新向量库
+                if self.ai_manager:
+                    success = self.update_vector_for_node(paper_id, node_id, edited_text, lang)
+                    if success:
+                        print(f"成功更新节点向量: {paper_id}/{node_id}")
+                    else:
+                        print(f"更新节点向量失败: {paper_id}/{node_id}")
+                
+                # 4. 发出翻译更新信号
+                self.translation_updated.emit(node_id, edited_text, lang, paper_id)
+                return True
+            else:
+                print(f"更新RAG树翻译失败: {paper_id}/{node_id}")
+                return False
+                
+        except Exception as e:
+            print(f"更新翻译失败: {str(e)}")
+            return False
+            
+    def update_rag_tree_translation(self, paper_id, node_id, new_text, lang="zh"):
+        """更新RAG树中的翻译
+        
+        Args:
+            paper_id: 论文ID
+            node_id: 节点ID
+            new_text: 新的翻译文本
+            lang: 语言，默认为中文
+            
+        Returns:
+            bool: 更新成功返回True，否则返回False
+        """
+        try:
+            # 获取RAG树文件路径
+            paper = next((p for p in self.papers_index if p["id"] == paper_id), None)
+            if not paper:
+                print(f"未找到论文: {paper_id}")
+                return False
+                
+            rag_tree_path = paper.get('paths', {}).get('rag_tree', '')
+            if not rag_tree_path:
+                print(f"论文没有RAG树路径: {paper_id}")
+                return False
+                
+            rag_tree_full_path = os.path.join(self.output_dir, rag_tree_path)
+            if not os.path.exists(rag_tree_full_path):
+                print(f"RAG树文件不存在: {rag_tree_full_path}")
+                return False
+                
+            # 加载RAG树
+            with open(rag_tree_full_path, 'r', encoding='utf-8') as f:
+                rag_tree = json.load(f)
+                
+            # 查找并更新节点
+            updated = self._update_node_in_tree(rag_tree, node_id, new_text, lang)
+            
+            if updated:
+                # 保存更新后的RAG树
+                with open(rag_tree_full_path, 'w', encoding='utf-8') as f:
+                    json.dump(rag_tree, f, ensure_ascii=False, indent=2)
+                    
+                print(f"已保存更新后的RAG树: {rag_tree_full_path}")
+                return True
+            else:
+                print(f"未找到要更新的节点: {node_id}")
+                return False
+                
+        except Exception as e:
+            print(f"更新RAG树翻译失败: {str(e)}")
+            return False
+            
+    def _update_node_in_tree(self, tree, node_id, new_text, lang="zh"):
+        """在RAG树中查找并更新指定节点的翻译
+        
+        Args:
+            tree: RAG树
+            node_id: 节点ID
+            new_text: 新的翻译文本
+            lang: 语言，默认为中文
+            
+        Returns:
+            bool: 更新成功返回True，否则返回False
+        """
+        # 检查根节点
+        if tree.get("id") == node_id:
+            if lang == "zh":
+                tree["zh_content"] = new_text
+            else:
+                tree["en_content"] = new_text
+            return True
+            
+        # 递归检查子节点
+        sections = tree.get("sections", [])
+        for section in sections:
+            # 检查当前节点
+            if section.get("id") == node_id:
+                if lang == "zh":
+                    section["zh_content"] = new_text
+                else:
+                    section["en_content"] = new_text
+                return True
+                
+            # 递归检查子节点
+            if self._update_node_in_tree(section, node_id, new_text, lang):
+                return True
+                
+            # 检查表格、公式等子节点
+            for node_type in ["tables", "formulas", "figures"]:
+                if node_type in section:
+                    for node in section[node_type]:
+                        if node.get("id") == node_id:
+                            if lang == "zh":
+                                node["zh_content"] = new_text
+                            else:
+                                node["en_content"] = new_text
+                            return True
+        
+        return False
+        
+    def update_vector_for_node(self, paper_id, node_id, new_text, lang="zh"):
+        """更新节点的向量表示
+        
+        Args:
+            paper_id: 论文ID
+            node_id: 节点ID
+            new_text: 新的文本
+            lang: 语言，默认为中文
+            
+        Returns:
+            bool: 更新成功返回True，否则返回False
+        """
+        if not self.ai_manager or not hasattr(self.ai_manager, 'retriever'):
+            print("AI管理器或检索器未初始化")
+            return False
+            
+        try:
+            # 获取RAG树
+            rag_tree = self.ai_manager.retriever.load_rag_tree(paper_id)
+            if not rag_tree:
+                print(f"加载RAG树失败: {paper_id}")
+                return False
+                
+            # 获取向量库路径
+            paper = next((p for p in self.papers_index if p["id"] == paper_id), None)
+            if not paper:
+                print(f"未找到论文: {paper_id}")
+                return False
+                
+            vector_store_path = paper.get('paths', {}).get('rag_vector_store', '')
+            if not vector_store_path:
+                print(f"论文没有向量库路径: {paper_id}")
+                return False
+                
+            vector_store_full_path = os.path.join(self.output_dir, vector_store_path)
+            
+            # 加载向量库
+            vector_store = self.ai_manager.retriever.load_vector_store(vector_store_full_path)
+            if not vector_store:
+                print(f"加载向量库失败: {vector_store_full_path}")
+                return False
+                
+            # 查找节点
+            node_found, node_content, node_text_field = self._get_node_content(rag_tree, node_id, lang)
+            if not node_found:
+                print(f"未找到要更新的节点: {node_id}")
+                return False
+                
+            # 准备向量更新所需的元数据
+            metadata = {
+                "paper_id": paper_id,
+                "node_id": node_id,
+                "source": "user_edited"
+            }
+            
+            # 添加节点类型和位置相关元数据
+            if isinstance(node_content, dict):
+                for key in ["node_type", "path", "section", "section_id", "parent_id"]:
+                    if key in node_content:
+                        metadata[key] = node_content[key]
+            
+            # 删除旧向量（如果存在）
+            from langchain_community.vectorstores.faiss import FAISS
+            from config import EmbeddingModel
+            
+            # 创建新文档并添加到向量库
+            from langchain_core.documents import Document
+            
+            document = Document(
+                page_content=new_text,
+                metadata=metadata
+            )
+            
+            # 添加到向量库
+            try:
+                # 尝试删除旧向量 - 这个操作在当前的FAISS实现中可能不支持，但我们可以尝试
+                # vector_store._collection.delete([node_id])
+                
+                # 添加新文档到向量库
+                vector_store.add_documents([document])
+                
+                # 保存更新后的向量库
+                vector_store.save_local(vector_store_full_path)
+                
+                print(f"已更新向量库: {node_id}")
+                return True
+                
+            except Exception as e:
+                print(f"更新向量库失败: {str(e)}")
+                # 尝试备份和重建向量库
+                return self._rebuild_vector_store(paper_id, vector_store_full_path, rag_tree)
+                
+        except Exception as e:
+            print(f"更新节点向量失败: {str(e)}")
+            return False
+            
+    def _get_node_content(self, tree, node_id, lang="zh"):
+        """在RAG树中查找指定节点的内容
+        
+        Args:
+            tree: RAG树
+            node_id: 节点ID
+            lang: 语言，默认为中文
+            
+        Returns:
+            tuple: (是否找到, 节点内容, 文本字段名)
+        """
+        text_field = "zh_content" if lang == "zh" else "en_content"
+        
+        # 检查根节点
+        if tree.get("id") == node_id:
+            return True, tree, text_field
+            
+        # 递归检查子节点
+        sections = tree.get("sections", [])
+        for section in sections:
+            # 检查当前节点
+            if section.get("id") == node_id:
+                return True, section, text_field
+                
+            # 递归检查子节点
+            found, node, field = self._get_node_content(section, node_id, lang)
+            if found:
+                return True, node, field
+                
+            # 检查表格、公式等子节点
+            for node_type in ["tables", "formulas", "figures"]:
+                if node_type in section:
+                    for node in section[node_type]:
+                        if node.get("id") == node_id:
+                            return True, node, text_field
+        
+        return False, None, text_field
+        
+    def _rebuild_vector_store(self, paper_id, vector_store_path, rag_tree):
+        """重建向量库
+        
+        Args:
+            paper_id: 论文ID
+            vector_store_path: 向量库路径
+            rag_tree: RAG树
+            
+        Returns:
+            bool: 重建成功返回True，否则返回False
+        """
+        try:
+            # 备份当前向量库
+            backup_path = f"{vector_store_path}_backup"
+            if os.path.exists(vector_store_path):
+                shutil.copytree(vector_store_path, backup_path, dirs_exist_ok=True)
+                print(f"已备份向量库: {backup_path}")
+            
+            # 导入必要的类
+            from processor.rag_processor import RagProcessor
+            from config import EmbeddingModel
+            
+            # 创建RAG处理器，正确传递输出目录参数
+            processor = RagProcessor(self.output_dir)
+            
+            # 重新生成向量库
+            result = processor.generate_vector_store(paper_id, rag_tree)
+            
+            if result:
+                print(f"已重建向量库: {paper_id}")
+                return True
+            else:
+                print(f"重建向量库失败: {paper_id}")
+                return False
+            
+        except Exception as e:
+            print(f"重建向量库失败: {str(e)}")
+            
+            # 尝试恢复备份
+            backup_path = f"{vector_store_path}_backup"
+            if os.path.exists(backup_path):
+                if os.path.exists(vector_store_path):
+                    shutil.rmtree(vector_store_path)
+                shutil.copytree(backup_path, vector_store_path)
+                print(f"已从备份恢复向量库: {vector_store_path}")
+            
+            return False
+            
+    def rollback_translation(self, paper_id, node_id, timestamp):
+        """回滚翻译到指定版本
+        
+        Args:
+            paper_id: 论文ID
+            node_id: 节点ID
+            timestamp: 时间戳
+            
+        Returns:
+            bool: 回滚成功返回True，否则返回False
+        """
+        try:
+            # 执行回滚
+            rollback_record = self.translation_history.rollback_to_version(
+                paper_id, node_id, timestamp
+            )
+            
+            if rollback_record:
+                # 更新RAG树和向量库
+                lang = rollback_record.get("lang", "zh")
+                edited_text = rollback_record.get("edited_text", "")
+                
+                if self.update_rag_tree_translation(paper_id, node_id, edited_text, lang):
+                    # 更新向量
+                    self.update_vector_for_node(paper_id, node_id, edited_text, lang)
+                    
+                    # 发出翻译更新信号
+                    self.translation_updated.emit(node_id, edited_text, lang, paper_id)
+                    
+                    return True
+            
+            return False
+            
+        except Exception as e:
+            print(f"回滚翻译失败: {str(e)}")
+            return False
+            
+    def get_translation_history(self, paper_id, node_id):
+        """获取翻译历史
+        
+        Args:
+            paper_id: 论文ID
+            node_id: 节点ID
+            
+        Returns:
+            list: 翻译历史记录列表
+        """
+        return self.translation_history.get_edit_history(paper_id, node_id)
+        
+    def export_translations(self, paper_id, include_history=False, filename=None):
+        """导出翻译
+        
+        Args:
+            paper_id: 论文ID
+            include_history: 是否包含历史记录
+            filename: 文件名，不提供则自动生成
+            
+        Returns:
+            str: 导出文件路径
+        """
+        # 获取翻译数据
+        export_data = self.translation_history.export_document(paper_id, include_history)
+        
+        # 添加论文信息
+        paper = next((p for p in self.papers_index if p["id"] == paper_id), None)
+        if paper:
+            export_data["paper_info"] = {
+                "title": paper.get("title", ""),
+                "translated_title": paper.get("translated_title", ""),
+                "authors": paper.get("authors", []),
+                "year": paper.get("year", ""),
+                "abstract": paper.get("abstract", ""),
+                "translated_abstract": paper.get("translated_abstract", "")
+            }
+        
+        # 保存导出文件
+        return self.translation_history.save_export(export_data, filename)
+
+    def update_paper_field(self, paper_id, new_field):
+        """
+        更新论文的领域分类
+        
+        Args:
+            paper_id: 论文ID
+            new_field: 新的领域分类
+            
+        Returns:
+            bool: 更新成功返回True，否则返回False
+        """
+        try:
+            # 确保新领域不为空
+            if not new_field or new_field.strip() == "":
+                return False
+                
+            # 读取论文索引
+            index_path = os.path.join(self.output_dir, "papers_index.json")
+            if not os.path.exists(index_path):
+                self.message.emit(f"索引文件不存在: {index_path}")
+                return False
+                
+            # 读取索引数据
+            with open(index_path, 'r', encoding='utf-8') as f:
+                papers_index = json.load(f)
+            
+            # 查找并更新指定论文的领域
+            paper_updated = False
+            for paper in papers_index:
+                if paper['id'] == paper_id:
+                    old_field = paper.get('field', '未分类')
+                    paper['field'] = new_field
+                    paper_updated = True
+                    self.message.emit(f"论文 {paper_id} 的领域已从 '{old_field}' 更新为 '{new_field}'")
+                    break
+            
+            # 如果找到并更新了论文，保存更新后的索引
+            if paper_updated:
+                with open(index_path, 'w', encoding='utf-8') as f:
+                    json.dump(papers_index, f, ensure_ascii=False, indent=2)
+                
+                # 更新内存中的论文索引
+                self.papers_index = papers_index
+                
+                # 发送论文列表更新信号
+                self.papers_loaded.emit(self.papers_index)
+                
+                return True
+            else:
+                self.message.emit(f"未找到ID为 {paper_id} 的论文")
+                return False
+        except Exception as e:
+            self.loading_error.emit(f"更新论文领域失败: {str(e)}")
+            return False

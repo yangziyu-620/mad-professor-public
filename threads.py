@@ -48,11 +48,20 @@ class AIResponseThread(QThread):
         self.visible_content = None
         self.use_streaming = True  # 默认使用流式响应
     
-    def set_request(self, query, paper_id=None, visible_content=None):
-        """设置请求参数"""
+    def set_request(self, query, paper_id=None, visible_content=None, force_regenerate=False):
+        """
+        设置请求参数
+        
+        Args:
+            query: 用户查询文本
+            paper_id: 论文ID，可选
+            visible_content: 当前可见内容，可选
+            force_regenerate: 是否强制重新生成，若为True则不合并连续问题
+        """
         self.query = query
         self.paper_id = paper_id
         self.visible_content = visible_content
+        self.force_regenerate = force_regenerate
     
     def run(self):
         """执行线程"""
@@ -60,8 +69,12 @@ class AIResponseThread(QThread):
             # 流式处理
             response = ""
             try:
-                # 修改这里，接收情绪参数
-                for sentence, emotion, scroll_info in self.ai_chat.process_query_stream(self.query, self.visible_content):
+                # 传递 force_regenerate 参数
+                for sentence, emotion, scroll_info in self.ai_chat.process_query_stream(
+                    self.query, 
+                    self.visible_content,
+                    force_regenerate=getattr(self, 'force_regenerate', False)
+                ):
                     # 检查线程是否被请求中断
                     if self.isInterruptionRequested():
                         print("AI响应生成被中断")
@@ -82,8 +95,12 @@ class AIResponseThread(QThread):
         else:
             # 非流式处理 - 单次响应
             try:
-                # 直接处理查询并获取完整响应
-                response = list(self.ai_chat.process_query_stream(self.query, self.visible_content))
+                # 直接处理查询并获取完整响应，传递 force_regenerate 参数
+                response = list(self.ai_chat.process_query_stream(
+                    self.query, 
+                    self.visible_content,
+                    force_regenerate=getattr(self, 'force_regenerate', False)
+                ))
                 
                 if self.isInterruptionRequested():
                     print("AI响应生成被中断")

@@ -158,3 +158,46 @@ cython_debug/
 #  and can be added to the global gitignore or merged into this file.  For a more nuclear
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
+/.cursor
+/.vscode
+/data
+/old_saved
+/output
+/models
+api_config.json
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Project specific
+api_config.json
+*.log
+output/_chat_history/
+output/_translation_history/
+
+# Large binary files
+*.h5
+*.pb
+*.onnx
+*.tflite
+*.pt
+*.bin
+
+# OS specific
+.DS_Store
+Thumbs.db
+
+# Models folder
+models/.cache/
+models/._____temp/
+
+# Don't ignore template
+!api_config_template.json

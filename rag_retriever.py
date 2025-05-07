@@ -1,9 +1,13 @@
 import json
+import os
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
 from langchain_community.vectorstores.faiss import FAISS
 from config import EmbeddingModel
 from PyQt6.QtCore import QObject, pyqtSignal, QThread
+
+# 导入rag_processor用于重新处理
+from processor.rag_processor import RagProcessor
 
 class VectorLoadingThread(QThread):
     """用于在后台加载向量库的线程"""
@@ -116,6 +120,16 @@ class RagRetriever(QObject):
                 print(f"[INFO] 成功加载新论文 {paper_id} 的向量库")
                 return True
             else:
+                # 尝试重新创建向量库
+                print(f"[WARNING] 无法加载新论文 {paper_id} 的向量库，尝试重新创建...")
+                if self._recreate_vector_store(paper_id):
+                    # 重新尝试加载
+                    vector_store = self.load_vector_store(vector_store_path)
+                    if vector_store:
+                        self.vector_stores[paper_id] = vector_store
+                        print(f"[INFO] 成功重新创建并加载论文 {paper_id} 的向量库")
+                        return True
+                
                 print(f"[WARNING] 无法加载新论文 {paper_id} 的向量库")
                 return False
         except Exception as e:
@@ -144,19 +158,149 @@ class RagRetriever(QObject):
             return None
             
         try:
-            # 加载向量库
-            vector_store = FAISS.load_local(
-                vector_store_path,
-                EmbeddingModel.get_instance(),
-                allow_dangerous_deserialization=True
-            )
-            
-            print(f"[INFO] 成功加载向量库: {vector_store_path}")
-            return vector_store
+            # 尝试使用当前的嵌入模型加载向量库
+            try:
+                vector_store = FAISS.load_local(
+                    vector_store_path,
+                    EmbeddingModel.get_instance(),
+                    allow_dangerous_deserialization=True
+                )
+                
+                print(f"[INFO] 成功加载向量库: {vector_store_path}")
+                return vector_store
+                
+            except RuntimeError as e:
+                # 检查是否是CUDA内存不足错误
+                if "CUDA out of memory" in str(e):
+                    print(f"[WARNING] GPU内存不足，正在切换到CPU模式: {str(e)}")
+                    
+                    # 重置嵌入模型实例以强制切换到CPU
+                    EmbeddingModel.reset_instance()
+                    
+                    # 使用CPU模式重试
+                    print("[INFO] 使用CPU模式重试加载向量库")
+                    vector_store = FAISS.load_local(
+                        vector_store_path,
+                        EmbeddingModel.get_instance(),
+                        allow_dangerous_deserialization=True
+                    )
+                    
+                    print(f"[INFO] 成功使用CPU模式加载向量库: {vector_store_path}")
+                    return vector_store
+                else:
+                    # 如果是其他类型的错误，则继续抛出
+                    raise
+                
         except Exception as e:
             print(f"[ERROR] 加载向量库失败: {str(e)}")
             return None
             
+    def _recreate_vector_store(self, paper_id: str) -> bool:
+        """
+        重新创建向量库
+        
+        Args:
+            paper_id: 论文ID
+            
+        Returns:
+            bool: 创建成功返回True，否则返回False
+        """
+        try:
+            # 获取论文路径信息
+            if not self.base_path:
+                print("[ERROR] 未设置基础路径，无法重新创建向量库")
+                return False
+                
+            # 从索引文件查找所需路径
+            index_path = Path(self.base_path) / "papers_index.json"
+            if not index_path.exists():
+                print(f"[ERROR] 论文索引不存在: {index_path}")
+                return False
+                
+            # 加载索引
+            with open(index_path, 'r', encoding='utf-8') as f:
+                papers_index = json.load(f)
+            
+            # 查找论文
+            paper_info = None
+            for paper in papers_index:
+                if paper.get('id') == paper_id:
+                    paper_info = paper
+                    break
+            
+            if not paper_info:
+                print(f"[ERROR] 未找到论文 {paper_id} 的信息")
+                return False
+            
+            # 获取必要的路径
+            paths = paper_info.get('paths', {})
+            json_path = paths.get('json')
+            tree_path = paths.get('rag_tree')
+            md_path = paths.get('rag_md')
+            vector_store_path = paths.get('rag_vector_store')
+            
+            if not (json_path and vector_store_path):
+                print(f"[ERROR] 论文 {paper_id} 缺少必要路径信息")
+                return False
+            
+            # 构建完整路径
+            json_full_path = str(Path(self.base_path) / json_path)
+            tree_full_path = str(Path(self.base_path) / tree_path) if tree_path else None
+            md_full_path = str(Path(self.base_path) / md_path) if md_path else None
+            vector_store_full_path = str(Path(self.base_path) / vector_store_path)
+            
+            # 如果md或tree文件不存在，需要重新构建它们
+            if not tree_full_path or not os.path.exists(tree_full_path) or not md_full_path or not os.path.exists(md_full_path):
+                print(f"[INFO] 需要重新生成RAG文件: {paper_id}")
+                
+                # 构建输出目录
+                output_dir = Path(vector_store_full_path).parent
+                output_dir.mkdir(parents=True, exist_ok=True)
+                
+                # 重新构建tree和md文件路径
+                if not tree_full_path:
+                    tree_full_path = str(output_dir / f"{paper_id}_tree.json")
+                if not md_full_path:
+                    md_full_path = str(output_dir / f"{paper_id}_md.md")
+            
+            # 确保json文件存在
+            if not os.path.exists(json_full_path):
+                print(f"[ERROR] 论文源JSON文件不存在: {json_full_path}")
+                return False
+            
+            print(f"[INFO] 开始重新生成向量库: {paper_id}")
+            
+            # 调用RAG处理器，传递输出目录参数
+            rag_processor = RagProcessor(self.base_path)
+            try:
+                # 尝试使用process方法完整处理
+                rag_processor.process(
+                    json_full_path, 
+                    md_full_path, 
+                    tree_full_path, 
+                    vector_store_full_path
+                )
+                
+                # 更新索引中的路径
+                if paper_info and 'paths' in paper_info:
+                    rel_md_path = os.path.relpath(md_full_path, self.base_path)
+                    rel_tree_path = os.path.relpath(tree_full_path, self.base_path)
+                    paper_info['paths']['rag_md'] = rel_md_path.replace('\\', '/')
+                    paper_info['paths']['rag_tree'] = rel_tree_path.replace('\\', '/')
+                    
+                    # 保存更新后的索引
+                    with open(index_path, 'w', encoding='utf-8') as f:
+                        json.dump(papers_index, f, ensure_ascii=False, indent=2)
+                
+                print(f"[INFO] 成功重新生成向量库: {paper_id}")
+                return True
+            except Exception as e:
+                print(f"[ERROR] 重新生成向量库失败: {str(e)}")
+                return False
+        except Exception as e:
+            print(f"[ERROR] 重新创建向量库失败: {str(e)}")
+            return False
+
     def load_rag_tree(self, paper_id: str) -> Dict:
         """
         加载论文的rag_tree
@@ -194,13 +338,13 @@ class RagRetriever(QObject):
                     break
             
             if not rag_tree_path:
-                print(f"[ERROR] 未找到论文 {paper_id} 的rag_tree路径")
+                print(f"[ERROR] 未找到论文 {paper_id} 的rag_tree路径，可能需要重新生成")
                 return {}
                 
             # 加载rag_tree
             full_path = Path(self.base_path) / rag_tree_path
             if not full_path.exists():
-                print(f"[ERROR] rag_tree文件不存在: {full_path}")
+                print(f"[ERROR] rag_tree文件不存在: {full_path}，可能需要重新生成")
                 return {}
                 
             with open(full_path, 'r', encoding='utf-8') as f:
@@ -212,7 +356,7 @@ class RagRetriever(QObject):
             return rag_tree
             
         except Exception as e:
-            print(f"[ERROR] 加载rag_tree失败: {str(e)}")
+            print(f"[ERROR] 加载rag_tree失败: {str(e)}，可能需要重新生成")
             return {}
 
     def retrieve(self, query: str, paper_id: str, top_k: int = 5) -> List[Tuple[str, float]]:
@@ -240,6 +384,15 @@ class RagRetriever(QObject):
                 vector_store = self.load_vector_store(vector_store_path)
                 if vector_store:
                     self.vector_stores[paper_id] = vector_store
+                else:
+                    # 向量库不存在，尝试重新创建
+                    print(f"[WARNING] 向量库不存在，尝试重新创建: {paper_id}")
+                    if self._recreate_vector_store(paper_id):
+                        # 重新尝试加载
+                        vector_store = self.load_vector_store(vector_store_path)
+                        if vector_store:
+                            self.vector_stores[paper_id] = vector_store
+                            print(f"[INFO] 成功重新创建并加载论文 {paper_id} 的向量库")
         
         if not vector_store:
             print(f"[WARNING] 未能获取论文 {paper_id} 的向量库")
@@ -247,16 +400,47 @@ class RagRetriever(QObject):
             
         try:
             # 执行检索
-            docs_with_scores = vector_store.similarity_search_with_score(
-                query=query,
-                k=top_k
-            )
-            
-            # 格式化结果
-            results = [(doc.page_content, score) for doc, score in docs_with_scores]
-            
-            print(f"[INFO] 从论文 {paper_id} 检索到 {len(results)} 条结果")
-            return results
+            try:
+                docs_with_scores = vector_store.similarity_search_with_score(
+                    query=query,
+                    k=top_k
+                )
+                # 格式化结果
+                results = [(doc.page_content, score) for doc, score in docs_with_scores]
+                print(f"[INFO] 从论文 {paper_id} 检索到 {len(results)} 条结果")
+                return results
+            except RuntimeError as e:
+                # 检查是否是CUDA内存不足错误
+                if "CUDA out of memory" in str(e):
+                    print(f"[WARNING] 检索时GPU内存不足，正在切换到CPU模式: {str(e)}")
+                    
+                    # 重置嵌入模型实例以强制切换到CPU
+                    EmbeddingModel.reset_instance()
+                    
+                    # 重新加载向量库
+                    print("[INFO] 使用CPU模式重新加载向量库")
+                    vector_store_path = self.paper_vector_paths[paper_id]
+                    vector_store = self.load_vector_store(vector_store_path)
+                    if vector_store:
+                        self.vector_stores[paper_id] = vector_store
+                        
+                        # 重试检索
+                        try:
+                            docs_with_scores = vector_store.similarity_search_with_score(
+                                query=query,
+                                k=top_k
+                            )
+                            print(f"[INFO] 使用CPU模式成功检索到 {len(docs_with_scores)} 条结果")
+                        except Exception as e2:
+                            print(f"[ERROR] 使用CPU模式检索失败: {str(e2)}")
+                            return []
+                    else:
+                        print(f"[ERROR] 无法使用CPU模式重新加载向量库")
+                        return []
+                else:
+                    # 如果是其他类型的错误，则继续抛出
+                    print(f"[ERROR] 检索失败: {str(e)}")
+                    return []
         except Exception as e:
             print(f"[ERROR] 检索失败: {str(e)}")
             return []
@@ -295,6 +479,15 @@ class RagRetriever(QObject):
                 vector_store = self.load_vector_store(vector_store_path)
                 if vector_store:
                     self.vector_stores[paper_id] = vector_store
+                else:
+                    # 向量库不存在，尝试重新创建
+                    print(f"[WARNING] 向量库不存在，尝试重新创建: {paper_id}")
+                    if self._recreate_vector_store(paper_id):
+                        # 重新尝试加载
+                        vector_store = self.load_vector_store(vector_store_path)
+                        if vector_store:
+                            self.vector_stores[paper_id] = vector_store
+                            print(f"[INFO] 成功重新创建并加载论文 {paper_id} 的向量库")
         
         if not vector_store:
             print(f"[WARNING] 未能获取论文 {paper_id} 的向量库")
@@ -304,8 +497,15 @@ class RagRetriever(QObject):
             # 加载rag_tree
             rag_tree = self.load_rag_tree(paper_id)
             if not rag_tree:
-                print(f"[WARNING] 未能加载论文 {paper_id} 的rag_tree")
-                return "", None
+                # 尝试重新创建
+                print(f"[WARNING] RAG树不存在，尝试重新创建: {paper_id}")
+                if self._recreate_vector_store(paper_id):
+                    # 重新尝试加载
+                    rag_tree = self.load_rag_tree(paper_id)
+                
+                if not rag_tree:
+                    print(f"[WARNING] 未能加载论文 {paper_id} 的rag_tree")
+                    return "", None
                 
             # 移除重试机制，直接执行检索
             try:
@@ -314,6 +514,38 @@ class RagRetriever(QObject):
                     query=query,
                     k=top_k
                 )
+            except RuntimeError as e:
+                # 检查是否是CUDA内存不足错误
+                if "CUDA out of memory" in str(e):
+                    print(f"[WARNING] 检索时GPU内存不足，正在切换到CPU模式: {str(e)}")
+                    
+                    # 重置嵌入模型实例以强制切换到CPU
+                    EmbeddingModel.reset_instance()
+                    
+                    # 重新加载向量库
+                    print("[INFO] 使用CPU模式重新加载向量库")
+                    vector_store_path = self.paper_vector_paths[paper_id]
+                    vector_store = self.load_vector_store(vector_store_path)
+                    if vector_store:
+                        self.vector_stores[paper_id] = vector_store
+                        
+                        # 重试检索
+                        try:
+                            docs_with_scores = vector_store.similarity_search_with_score(
+                                query=query,
+                                k=top_k
+                            )
+                            print(f"[INFO] 使用CPU模式成功检索到 {len(docs_with_scores)} 条结果")
+                        except Exception as e2:
+                            print(f"[ERROR] 使用CPU模式检索失败: {str(e2)}")
+                            return "", None
+                    else:
+                        print(f"[ERROR] 无法使用CPU模式重新加载向量库")
+                        return "", None
+                else:
+                    # 如果是其他类型的错误，则继续抛出
+                    print(f"[ERROR] 检索失败: {str(e)}")
+                    return "", None
             except Exception as e:
                 print(f"[ERROR] 检索失败: {str(e)}")
                 return "", None

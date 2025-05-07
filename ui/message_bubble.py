@@ -1,7 +1,8 @@
 from PyQt6.QtWidgets import QWidget, QFrame, QLabel, QHBoxLayout, QVBoxLayout
 from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QPixmap
+from PyQt6.QtGui import QPixmap, QIcon
 from paths import get_asset_path
+import re
 
 class MessageBubble(QWidget):
     """
@@ -9,7 +10,7 @@ class MessageBubble(QWidget):
     
     用于在聊天界面中显示用户或AI消息，气泡样式根据发送者不同而不同
     """
-    def __init__(self, message, is_user=True, parent=None):
+    def __init__(self, message, is_user=True, parent=None, regenerate_callback=None):
         """
         初始化消息气泡
         
@@ -17,10 +18,12 @@ class MessageBubble(QWidget):
             message (str): 消息内容
             is_user (bool): 是否为用户消息，True为用户消息，False为AI消息
             parent: 父组件
+            regenerate_callback: 重新生成消息的回调函数
         """
         super().__init__(parent)
         self.is_user = is_user
         self.message = message
+        self.regenerate_callback = regenerate_callback
         self.init_ui()
         
     def init_ui(self):
@@ -42,7 +45,7 @@ class MessageBubble(QWidget):
             layout: 要添加气泡的布局
         """
         # 用户消息靠右
-        layout.addStretch(3)  # 左侧弹性空间
+        layout.addStretch(10)  # 左侧弹性空间更大，确保消息靠右
         
         # 创建气泡及容器
         bubble_container, bubble = self.create_bubble(
@@ -66,34 +69,44 @@ class MessageBubble(QWidget):
     
     def setup_ai_bubble(self, layout):
         """
-        设置AI消息气泡
+        设置AI消息气泡布局
         
         Args:
-            layout: 要添加气泡的布局
+            layout: 要设置的布局
         """
-        # AI消息靠左
         # 创建头像
         avatar = self.create_avatar("ai_avatar.svg")
         
-        # 创建气泡及容器
+        # 检查/think分隔符，支持/think或/think:，并分割内容
+        think_match = re.search(r"/think:?", self.message, re.IGNORECASE)
+        if think_match:
+            split_idx = think_match.start()
+            main_content = self.message[:split_idx].rstrip()
+            think_content = self.message[think_match.end():].lstrip()
+        else:
+            main_content = self.message
+            think_content = None
+        
+        # 创建气泡及容器（传递主内容和think内容）
         bubble_container, bubble = self.create_bubble(
-            self.message,
-            "aiBubble",
+            main_content,
+            "aiBubble", 
             "#E3F2FD",  # 背景色
             "#BBDEFB",  # 边框色
             "#1A237E",  # 文字色
-            "15px 15px 15px 0"  # 圆角
+            "15px 15px 15px 0",  # 圆角
+            think_content,  # think内容
+            show_regenerate=True  # AI消息显示重新生成按钮
         )
         
         # 添加到布局
         layout.addWidget(avatar)
         layout.addWidget(bubble_container, 7)
-        layout.addStretch(3)  # 右侧弹性空间
-
+        
         # 设置头像顶部对齐
         layout.setAlignment(avatar, Qt.AlignmentFlag.AlignTop)
-        
-    def create_bubble(self, message, object_name, bg_color, border_color, text_color, border_radius):
+
+    def create_bubble(self, message, object_name, bg_color, border_color, text_color, border_radius, think_content=None, show_regenerate=False):
         """
         创建消息气泡
         
@@ -104,7 +117,8 @@ class MessageBubble(QWidget):
             border_color: 边框颜色
             text_color: 文本颜色
             border_radius: 边框圆角
-            
+            think_content: /think部分内容（可选）
+            show_regenerate: 是否显示重新生成按钮
         Returns:
             tuple: (气泡容器, 气泡)
         """
@@ -118,8 +132,15 @@ class MessageBubble(QWidget):
                 border-radius: {border_radius};
                 padding: 8px;
                 min-width: 200px;
+                max-width: 550px;  /* 为AI消息设置更大的最大宽度 */
             }}
         """)
+        
+        # 创建容器（用于控制气泡大小比例并放置重新生成按钮）
+        container = QWidget()
+        container_layout = QHBoxLayout(container)
+        container_layout.setContentsMargins(0, 0, 0, 0)
+        container_layout.setSpacing(8)  # 增加气泡和按钮之间的间距
         
         # 气泡内布局
         bubble_layout = QVBoxLayout(bubble)
@@ -130,15 +151,69 @@ class MessageBubble(QWidget):
         msg_label.setWordWrap(True)
         msg_label.setStyleSheet(f"color: {text_color}; font-size: 14px;")
         msg_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        
         bubble_layout.addWidget(msg_label)
         
-        # 创建容器（用于控制气泡大小比例）
-        container = QWidget()
-        container_layout = QHBoxLayout(container)
-        container_layout.setContentsMargins(0, 0, 0, 0)
+        # 如果有think内容，添加可展开/收起区域
+        if think_content is not None:
+            from PyQt6.QtWidgets import QPushButton
+            self.think_label = QLabel(think_content)
+            self.think_label.setWordWrap(True)
+            self.think_label.setStyleSheet("color: #607D8B; font-size: 13px; background: #F5F7FA; border-radius: 6px; padding: 6px; margin-top: 8px;")
+            self.think_label.setVisible(False)
+            self.think_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+
+            self.toggle_btn = QPushButton("显示推理过程")
+            self.toggle_btn.setCheckable(True)
+            self.toggle_btn.setStyleSheet("QPushButton { font-size: 12px; color: #1976D2; background: transparent; border: none; text-align: left; margin-top: 4px; } QPushButton:checked { color: #D32F2F; }")
+            self.toggle_btn.setChecked(False)
+            def toggle():
+                if self.toggle_btn.isChecked():
+                    self.think_label.setVisible(True)
+                    self.toggle_btn.setText("收起推理过程")
+                else:
+                    self.think_label.setVisible(False)
+                    self.toggle_btn.setText("显示推理过程")
+            self.toggle_btn.clicked.connect(toggle)
+            bubble_layout.addWidget(self.toggle_btn)
+            bubble_layout.addWidget(self.think_label)
+        
+        # 添加气泡到容器布局
         container_layout.addWidget(bubble)
-        container_layout.setStretch(0, 4)  # 让气泡占据更多空间
+        
+        # 如果是AI消息且需要显示重新生成按钮，将按钮添加到右侧
+        if show_regenerate and self.regenerate_callback:
+            from PyQt6.QtWidgets import QPushButton
+            
+            # 创建重新生成按钮（使用图标）- 完全圆形设计
+            regenerate_button = QPushButton()
+            regenerate_button.setIcon(QIcon(get_asset_path("refresh.svg")))
+            regenerate_button.setToolTip("重新生成回答")
+            regenerate_button.setFixedSize(36, 36)  # 稍微增大按钮尺寸
+            regenerate_button.setStyleSheet("""
+                QPushButton {
+                    background-color: rgba(25, 118, 210, 0.1);
+                    border: 1px solid rgba(25, 118, 210, 0.3);
+                    border-radius: 18px;  /* 圆形按钮，半径为宽高的一半 */
+                    padding: 4px;
+                    margin-top: 5px;
+                }
+                QPushButton:hover {
+                    background-color: rgba(25, 118, 210, 0.2);
+                    border: 1px solid rgba(25, 118, 210, 0.5);
+                }
+                QPushButton:pressed {
+                    background-color: rgba(25, 118, 210, 0.3);
+                }
+            """)
+            regenerate_button.clicked.connect(self.regenerate_callback)
+            
+            # 添加到容器布局的右侧
+            container_layout.addWidget(regenerate_button)
+            container_layout.setAlignment(regenerate_button, Qt.AlignmentFlag.AlignTop)
+        
+        # 右侧添加弹性空间，对于用户消息不添加
+        if object_name != "userBubble":
+            container_layout.addStretch(3)
         
         return container, bubble
     

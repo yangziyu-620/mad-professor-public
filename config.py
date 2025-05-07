@@ -1,15 +1,88 @@
 import logging
 import sys
+import os
+import json
 from typing import Optional, List, Dict, Any, Generator
 from openai import OpenAI
 from langchain_huggingface import HuggingFaceEmbeddings
 
-# API配置
-API_BASE_URL = "YOUR_API_URL"
-API_KEY = "YOUR_API_KEY"
+# # API配置
 
-TTS_GROUP_ID = "YOUR_MINIMAX_GROUP_ID"
-TTS_API_KEY = "YOUR_MINIMAX_API_KEY"
+# 模型预设配置
+API_CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'api_config.json')
+API_CONFIG_TEMPLATE_PATH = os.path.join(os.path.dirname(__file__), 'api_config_template.json')
+
+API_CONFIG_TEMPLATE = {
+    "xai-grok:free but training": {
+        "name": "xai-grok",
+        "description": "Grok-3-beta(X.AI)",
+        "base_url": "https://api.x.ai/v1",
+        "api_key": "",
+        "model_id": "grok-3-beta"
+    },
+    "openrouter-deepseek:free": {
+        "name": "deepseek-v3-0324:free",
+        "description": "DeepSeek-V3 (0324版本)",
+        "base_url": "https://openrouter.ai/api/v1",
+        "api_key": "",
+        "model_id": "deepseek/deepseek-chat-v3-0324:free"
+    },
+    "deepseek-official:paid": {
+        "name": "deepseek-official",
+        "description": "DeepSeek-V3",
+        "base_url": "https://api.deepseek.com/v1",
+        "api_key": "",
+        "model_id": "deepseek/deepseek-chat"
+    },
+    "claude:paid": {
+        "name": "claude",
+        "description": "Claude 3.5 Sonnet",
+        "base_url": "https://api.anthropic.com/v1",
+        "api_key": "",
+        "model_id": "claude-3-5-sonnet-20240620"
+    },
+    # "qwen": {
+    #     "name": "qwen",
+    #     "description": "通义千问",
+    #     "base_url": "https://dashscope.aliyuncs.com/api/v1",
+    #     "api_key": "sk-c4194e56a5d14be6a20b99c8e99932be",
+    #     "model_id": "qwen-max"
+    # },
+    "openrouter-qwq-32b:free": {
+        "name": "qwq-32b:free",
+        "description": "Qwen/QWQ-32B",
+        "base_url": "https://openrouter.ai/api/v1",
+        "api_key": "",
+        "model_id": "qwen/qwq-32b:free"
+    },
+    "chatgpt-4o-mini:paid": {
+        "name": "chatgpt-4o-mini",
+        "description": "ChatGPT-4o-mini",
+        "base_url": "https://api.openai.com/v1",
+        "api_key": "",
+        "model_id": "gpt-4o-mini"
+    }
+}
+
+def ensure_api_config():
+    if not os.path.exists(API_CONFIG_PATH):
+        # 如果配置文件不存在，生成空白模板
+        with open(API_CONFIG_PATH, 'w', encoding='utf-8') as f:
+            json.dump(API_CONFIG_TEMPLATE, f, indent=2, ensure_ascii=False)
+        # 生成模板文件供github上传
+        with open(API_CONFIG_TEMPLATE_PATH, 'w', encoding='utf-8') as f:
+            json.dump(API_CONFIG_TEMPLATE, f, indent=2, ensure_ascii=False)
+        print(f"未检测到API配置文件，已生成空白模板: {API_CONFIG_PATH}，请填写API密钥。模板文件: {API_CONFIG_TEMPLATE_PATH}")
+    with open(API_CONFIG_PATH, 'r', encoding='utf-8') as f:
+        return json.load(f)
+
+MODEL_PRESETS = ensure_api_config()
+
+# 当前使用的模型配置
+CURRENT_MODEL_PRESET = "xai-grok:free but training"
+
+TTS_GROUP_ID = "1916768832421110363"
+TTS_API_KEY = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJHcm91cE5hbWUiOiJVTkFGeWFuZyIsIlVzZXJOYW1lIjoiVU5BRnlhbmciLCJBY2NvdW50IjoiIiwiU3ViamVjdElEIjoiMTkxNjc2ODgzMjQyOTQ5OTExMiIsIlBob25lIjoiMTg4MTAzODgxNjUiLCJHcm91cElEIjoiMTkxNjc2ODgzMjQyMTExMDM2MyIsIlBhZ2VOYW1lIjoiIiwiTWFpbCI6IiIsIkNyZWF0ZVRpbWUiOiIyMDI1LTA0LTMwIDIxOjQyOjIyIiwiVG9rZW5UeXBlIjoxLCJpc3MiOiJtaW5pbWF4In0.cp00Y73fU4zB5tge9Y0oeReRgyDLWci6FpV3IYRA1Mbimf_UDmPVWfBWg_M-sCTaoYLu_RYVSeXWtFxnfFMPCFXL4ZdE0e7JEbLNFpWwSp9MpKd1LOFxsFVgSfmEQom2dV-OChWB3mOnTcwswjGmPvvWPkysb1XWHb0EHBvQPtslEa9y4AmmH4ks6QREH1a2w77JZRKWrFmjTTRrMAKQ2lT5eEzw72ea54ZNNFXFyFICFIRBnjWyEI7xwR_D_NcB9uD1blbMS1BeYyZRULyIi5qYgxaz1mmemcdT2l_kR7oVCW4-WtbT22M4Fhe71QrofSC6jWkCh-si0kVhtknDSw"
 
 # 嵌入模型配置
 EMBEDDING_MODEL_NAME = "BAAI/bge-m3"
@@ -35,7 +108,7 @@ def setup_logging():
     # 添加控制台处理器
     root_logger.addHandler(console_handler)
 
-# LLM客户端
+# LLM 客 户 端
 class LLMClient:
     _instance: Optional['LLMClient'] = None
     
@@ -46,19 +119,48 @@ class LLMClient:
             cls._instance._initialized = False
         return cls._instance
     
-    def __init__(self, api_key=None, base_url=None):
+    def __init__(self, preset_name=None):
         """初始化LLM客户端"""
         if self._initialized:
             return
             
-        self.api_key = api_key or API_KEY
-        self.base_url = base_url or API_BASE_URL
-        
-        self.client = OpenAI(
-            api_key=self.api_key,
-            base_url=self.base_url
-        )
+        # 初始化
         self._initialized = True
+        self.current_preset = CURRENT_MODEL_PRESET
+        self.update_config(preset_name or self.current_preset)
+        
+    def update_config(self, preset_name):
+        """更新模型配置"""
+        if preset_name in MODEL_PRESETS:
+            preset = MODEL_PRESETS[preset_name]
+            self.api_key = preset["api_key"]
+            self.base_url = preset["base_url"]
+            self.model_id = preset["model_id"]
+            self.current_preset = preset_name
+            
+            # 更新OpenAI客户端
+            self.client = OpenAI(
+                api_key=self.api_key,
+                base_url=self.base_url
+            )
+            return True
+        return False
+        
+    def switch_model(self, preset_name):
+        """切换到不同的模型预设"""
+        if self.update_config(preset_name):
+            print(f"已切换到模型: {MODEL_PRESETS[preset_name]['description']}")
+            return True
+        print(f"切换模型失败: 未找到预设 '{preset_name}'")
+        return False
+        
+    def get_available_models(self):
+        """获取所有可用模型预设"""
+        return {name: preset["description"] for name, preset in MODEL_PRESETS.items()}
+        
+    def get_current_model(self):
+        """获取当前使用的模型信息"""
+        return MODEL_PRESETS.get(self.current_preset, {})
         
     def chat(self, messages: List[Dict[str, Any]], temperature=0.5, stream=True) -> str:
         """与LLM交互
@@ -73,7 +175,7 @@ class LLMClient:
         """
         try:
             response = self.client.chat.completions.create(
-                model="deepseek-v3-250324",
+                model=self.model_id,
                 messages=messages,
                 temperature=temperature,
                 stream=stream
@@ -110,7 +212,7 @@ class LLMClient:
         """
         try:
             response = self.client.chat.completions.create(
-                model="deepseek-v3-250324",
+                model=self.model_id,
                 messages=messages,
                 temperature=temperature,
                 stream=True
@@ -175,26 +277,122 @@ class LLMClient:
 # 嵌入模型
 class EmbeddingModel:
     _instance: Optional[HuggingFaceEmbeddings] = None
-
+    
     @classmethod
     def get_instance(cls) -> HuggingFaceEmbeddings:
-        """获取嵌入模型单例"""
+        """获取嵌入模型实例（单例模式）
+        
+        Returns:
+            HuggingFaceEmbeddings: 嵌入模型实例
+        """
         if cls._instance is None:
-            # 检查CUDA可用性
-            try:
-                import torch
-                device = "cuda" if torch.cuda.is_available() else "cpu"
-            except ImportError:
-                device = "cpu"
-                
-            logging.info(f"初始化嵌入模型: {EMBEDDING_MODEL_NAME}，使用设备: {device}")
+            # 优先使用GPU加速，如果可用的话
+            device = "cuda" if cls._is_gpu_available() else "cpu"
             
-            cls._instance = HuggingFaceEmbeddings(
-                model_name=EMBEDDING_MODEL_NAME,
-                model_kwargs={"device": device},
-                encode_kwargs={"normalize_embeddings": True}
-            )
+            logging.info(f"初始化嵌入模型 {EMBEDDING_MODEL_NAME}，使用设备: {device}")
+            
+            try:
+                # 尝试初始化嵌入模型
+                cls._instance = HuggingFaceEmbeddings(
+                    model_name=EMBEDDING_MODEL_NAME,
+                    model_kwargs={"device": device},
+                    encode_kwargs={"device": device, "batch_size": 8}
+                )
+                logging.info(f"嵌入模型初始化成功")
+            except Exception as e:
+                # 如果GPU初始化失败，回退到CPU
+                if device == "cuda":
+                    logging.warning(f"GPU初始化失败: {str(e)}，尝试使用CPU")
+                    try:
+                        cls._instance = HuggingFaceEmbeddings(
+                            model_name=EMBEDDING_MODEL_NAME,
+                            model_kwargs={"device": "cpu"},
+                            encode_kwargs={"device": "cpu", "batch_size": 8}
+                        )
+                        logging.info(f"使用CPU成功初始化嵌入模型")
+                    except Exception as e2:
+                        logging.error(f"CPU初始化也失败: {str(e2)}")
+                        raise
+                else:
+                    logging.error(f"嵌入模型初始化失败: {str(e)}")
+                    raise
+        
         return cls._instance
+    
+    @classmethod
+    def reset_instance(cls, force_cpu=False):
+        """重置嵌入模型实例，使下次获取时重新初始化
+        
+        Args:
+            force_cpu: 是否强制使用CPU，即使GPU可用
+        """
+        if cls._instance is not None:
+            # 保存原设备信息用于日志
+            old_device = getattr(cls._instance, "_device", "未知")
+            
+            # 清理旧实例
+            try:
+                # 尝试清理CUDA内存
+                import torch
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+            except Exception as e:
+                logging.warning(f"清理CUDA缓存失败: {str(e)}")
+                
+            # 重置实例
+            cls._instance = None
+            logging.info(f"已重置嵌入模型实例 (原设备: {old_device})")
+            
+            # 如果强制使用CPU，先修改设备检测方法
+            if force_cpu:
+                # 暂存原始方法
+                original_is_gpu_available = cls._is_gpu_available
+                
+                # 创建临时方法强制返回False
+                @classmethod
+                def force_cpu_detection(c):
+                    logging.info("强制使用CPU模式")
+                    return False
+                
+                # 替换方法
+                cls._is_gpu_available = force_cpu_detection
+                
+                # 初始化实例
+                instance = cls.get_instance()
+                
+                # 恢复原始方法
+                cls._is_gpu_available = original_is_gpu_available
+                
+                return instance
+    
+    @classmethod
+    def _is_gpu_available(cls) -> bool:
+        """检查GPU是否可用
+        
+        Returns:
+            bool: 如果GPU可用返回True，否则返回False
+        """
+        try:
+            import torch
+            if torch.cuda.is_available():
+                # 检查GPU可用显存
+                free_memory = torch.cuda.get_device_properties(0).total_memory - torch.cuda.memory_allocated(0)
+                free_gb = free_memory / (1024**3)
+                
+                # 对于BGE-m3模型，至少需要4GB显存
+                min_required_gb = 4.0
+                
+                if free_gb >= min_required_gb:
+                    logging.info(f"GPU显存充足 (可用: {free_gb:.2f}GB, 需要: {min_required_gb:.2f}GB)")
+                    return True
+                else:
+                    logging.warning(f"GPU显存不足 (可用: {free_gb:.2f}GB, 需要: {min_required_gb:.2f}GB)，切换到CPU模式")
+                    return False
+            else:
+                return False
+        except Exception as e:
+            logging.warning(f"检查GPU状态时出错: {str(e)}")
+            return False
 
 # 使用示例
 if __name__ == "__main__":

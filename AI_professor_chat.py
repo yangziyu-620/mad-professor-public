@@ -73,12 +73,13 @@ class AIProfessorChat:
             self.logger.error(f"设置论文上下文失败: {str(e)}")
             return False
     
-    def process_query_stream(self, query: str, visible_content: str = None) -> Generator[Tuple[str, str, Dict], None, None]:
+    def process_query_stream(self, query: str, visible_content: str = None, force_regenerate: bool = False) -> Generator[Tuple[str, str, Dict], None, None]:
         """流式处理用户查询并生成回答，按句子返回
         
         Args:
             query: 用户查询文本
             visible_content: 当前可见的页面内容
+            force_regenerate: 是否强制重新生成，若为True则跳过重复问题检查
             
         Yields:
             Tuple[str, str, Dict]: (生成的句子, 情绪, 滚动定位信息)
@@ -95,7 +96,9 @@ class AIProfessorChat:
 
             # 1. 检查是否需要添加用户问题到对话历史
             should_add_query = True
-            if self.conversation_history and len(self.conversation_history) > 0:
+            
+            # 强制重新生成时跳过重复问题检查
+            if not force_regenerate and self.conversation_history and len(self.conversation_history) > 0:
                 last_message = self.conversation_history[-1]
                 if last_message["role"] == "user" and last_message["content"] == query:
                     # 问题已存在于历史记录的最后一条，不需要重复添加

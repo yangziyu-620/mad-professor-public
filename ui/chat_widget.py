@@ -1,5 +1,5 @@
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, 
-                           QTextEdit, QScrollArea, QLabel, QFrame, QComboBox)
+                           QTextEdit, QScrollArea, QLabel, QFrame, QComboBox, QMenu)
 from PyQt6.QtCore import Qt, QTimer, QSize
 from PyQt6.QtGui import QIcon, QFont
 
@@ -49,6 +49,13 @@ class ChatWidget(QWidget):
         self.ai_controller.voice_device_switched.connect(self.on_device_switched)
         # 新增信号连接
         self.ai_controller.ai_generation_cancelled.connect(self.on_ai_generation_cancelled)
+        self.ai_controller.chat_history_updated.connect(self.on_chat_history_updated)
+        
+        # 初始化模型选择器
+        self.init_model_selector()
+        
+        # 初始化TTS按钮状态
+        self.update_tts_button_state()
         
         # 保存当前活动请求ID
         self.active_request_id = None
@@ -110,7 +117,100 @@ class ChatWidget(QWidget):
         title_label.setFont(title_font)
         title_label.setStyleSheet("color: white; font-weight: bold;")
         
+        # 添加刷新按钮
+        self.refresh_button = QPushButton()
+        self.refresh_button.setIcon(QIcon(get_asset_path("refresh.svg")))
+        self.refresh_button.setToolTip("刷新界面")
+        self.refresh_button.setFixedSize(32, 32)
+        self.refresh_button.setStyleSheet("""
+            QPushButton {
+                background-color: rgba(255, 255, 255, 0.2);
+                border: 1px solid rgba(255, 255, 255, 0.3);
+                border-radius: 16px;
+                padding: 4px;
+            }
+            QPushButton:hover {
+                background-color: rgba(255, 255, 255, 0.3);
+            }
+            QPushButton:pressed {
+                background-color: rgba(255, 255, 255, 0.4);
+            }
+        """)
+        self.refresh_button.clicked.connect(self.refresh_ui)
+        
+        # 添加历史记录下拉菜单
+        self.history_selector = QComboBox()
+        self.history_selector.setFixedWidth(120)
+        self.history_selector.setStyleSheet("""
+            QComboBox {
+                background-color: rgba(255, 255, 255, 0.2);
+                color: white;
+                border: 1px solid rgba(255, 255, 255, 0.3);
+                border-radius: 4px;
+                padding: 2px 5px;
+            }
+            QComboBox::drop-down {
+                subcontrol-origin: padding;
+                subcontrol-position: top right;
+                width: 20px;
+                border-left: 1px solid rgba(255, 255, 255, 0.3);
+            }
+            QComboBox QAbstractItemView {
+                background-color: #2C3E50;
+                color: white;
+                selection-background-color: #34495E;
+            }
+        """)
+        self.history_selector.addItem("选择历史记录")
+        self.history_selector.currentIndexChanged.connect(self.on_history_selected)
+        
+        # 添加新对话按钮
+        self.new_chat_button = QPushButton("新对话")
+        self.new_chat_button.setFixedWidth(80)
+        self.new_chat_button.setStyleSheet("""
+            QPushButton {
+                background-color: rgba(255, 255, 255, 0.2);
+                color: white;
+                border: 1px solid rgba(255, 255, 255, 0.3);
+                border-radius: 4px;
+                padding: 2px 5px;
+            }
+            QPushButton:hover {
+                background-color: rgba(255, 255, 255, 0.3);
+            }
+        """)
+        self.new_chat_button.clicked.connect(self.start_new_chat)
+        
+        # 添加模型选择下拉框
+        self.model_selector = QComboBox()
+        self.model_selector.setFixedWidth(150)
+        self.model_selector.setStyleSheet("""
+            QComboBox {
+                background-color: rgba(255, 255, 255, 0.2);
+                color: white;
+                border: 1px solid rgba(255, 255, 255, 0.3);
+                border-radius: 4px;
+                padding: 2px 5px;
+            }
+            QComboBox::drop-down {
+                subcontrol-origin: padding;
+                subcontrol-position: top right;
+                width: 20px;
+                border-left: 1px solid rgba(255, 255, 255, 0.3);
+            }
+            QComboBox QAbstractItemView {
+                background-color: #2C3E50;
+                color: white;
+                selection-background-color: #34495E;
+            }
+        """)
+        
         title_layout.addWidget(title_label)
+        title_layout.addWidget(self.refresh_button)
+        title_layout.addStretch(1)
+        title_layout.addWidget(self.history_selector)
+        title_layout.addWidget(self.new_chat_button)
+        title_layout.addWidget(self.model_selector)
         
         return title_bar
     
@@ -166,19 +266,30 @@ class ChatWidget(QWidget):
             QScrollArea {
                 background-color: #FFFFFF;
                 border: 1px solid #E0E0E0;
-                border-radius: 10px;
+                border-radius: 8px;
             }
         """)
         
         # 创建消息容器
         self.messages_container = QWidget()
-        self.messages_layout = QVBoxLayout(self.messages_container)
-        self.messages_layout.setContentsMargins(0, 10, 0, 10)
-        self.messages_layout.setSpacing(10)
-        self.messages_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
-        self.messages_container.setStyleSheet("background-color: transparent;")
+        self.messages_container.setObjectName("messagesContainer")
         
-        # 设置滚动区域的内容
+        # 设置消息容器样式 - 确保内容宽度能够填充整个可见区域
+        self.messages_container.setStyleSheet("""
+            #messagesContainer {
+                background-color: #FFFFFF;
+                border-radius: 8px;
+            }
+        """)
+        
+        # 创建消息布局并设置伸缩性 - 重要：防止内容收缩
+        self.messages_layout = QVBoxLayout(self.messages_container)
+        self.messages_layout.setContentsMargins(15, 15, 15, 15)
+        self.messages_layout.setSpacing(15)
+        self.messages_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        self.messages_layout.setSizeConstraint(QVBoxLayout.SizeConstraint.SetMinAndMaxSize)
+        
+        # 设置滚动区域的窗口部件
         scroll_area.setWidget(self.messages_container)
         
         return scroll_area
@@ -271,6 +382,10 @@ class ChatWidget(QWidget):
         self.voice_button = self.create_voice_button()
         voice_layout.addWidget(self.voice_button)
         
+        # 添加TTS开关按钮
+        self.tts_toggle_button = self.create_tts_toggle_button()
+        voice_layout.addWidget(self.tts_toggle_button)
+        
         # 创建可交互的设备选择组件
         self.device_combo = QComboBox()
         self.device_combo.setFixedWidth(185)
@@ -354,6 +469,34 @@ class ChatWidget(QWidget):
         
         return voice_button
     
+    def create_tts_toggle_button(self):
+        """创建TTS开关按钮
+        
+        Returns:
+            QPushButton: 配置好的TTS开关按钮
+        """
+        tts_button = QPushButton()
+        tts_button.setIcon(QIcon(get_asset_path("sound_on.svg")))
+        tts_button.setObjectName("ttsButton")
+        tts_button.setFixedSize(32, 32)
+        tts_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        tts_button.setToolTip("点击开启/关闭语音输出")
+        tts_button.setIconSize(QSize(16, 16))
+        tts_button.setStyleSheet("""
+            #ttsButton {
+                background-color: #E3F2FD;
+                border: 1px solid #BBDEFB;
+                border-radius: 16px;
+                padding: 5px;
+            }
+            #ttsButton:hover {
+                background-color: #BBDEFB;
+            }
+        """)
+        tts_button.clicked.connect(self.toggle_tts)
+        
+        return tts_button
+    
     def create_send_button(self):
         """
         创建发送按钮
@@ -401,15 +544,8 @@ class ChatWidget(QWidget):
         """
         message = self.message_input.toPlainText().strip()
         if message:
-            # 添加用户消息气泡
-            user_bubble = MessageBubble(message, is_user=True)
-            self.messages_layout.addWidget(user_bubble)
-            
             # 清空输入框
             self.message_input.clear()
-            
-            # 滚动到底部
-            QTimer.singleShot(100, self.scroll_to_bottom)
             
             # 处理消息并获取AI响应
             self.process_message(message)
@@ -421,6 +557,13 @@ class ChatWidget(QWidget):
             self.messages_layout.removeWidget(self.loading_bubble)
             self.loading_bubble.deleteLater()
             self.loading_bubble = None
+
+        # 创建用户消息气泡，并设置合理的宽度
+        user_bubble = MessageBubble(message, is_user=True)
+        user_bubble.setMinimumWidth(300)  # 确保消息气泡有基本宽度
+        user_bubble.setMaximumWidth(600)  # 但也不能太宽，影响阅读
+        self.messages_layout.addWidget(user_bubble)
+        self.scroll_to_bottom()
 
         # 如果有AI控制器，则使用AI控制器处理消息
         if self.ai_controller:
@@ -475,13 +618,24 @@ class ChatWidget(QWidget):
         Args:
             message: AI返回的消息内容
         """
-        # 添加AI消息气泡
-        ai_bubble = MessageBubble(message, is_user=False)
+        # 添加AI消息气泡，并设置合理的宽度
+        ai_bubble = MessageBubble(message, is_user=False, regenerate_callback=self.regenerate_message)
+        ai_bubble.setMinimumWidth(200)  # 确保消息气泡有基本宽度
+        ai_bubble.setMaximumWidth(550)  # AI回答可能较长，给予更多空间
         self.messages_layout.addWidget(ai_bubble)
+        
+        # 保存最后一条用户消息，用于重新生成
+        self.last_user_message = None
+        if self.ai_controller and self.ai_controller.ai_chat and len(self.ai_controller.ai_chat.conversation_history) > 0:
+            history = self.ai_controller.ai_chat.conversation_history
+            for item in reversed(history):
+                if item.get('role') == 'user':
+                    self.last_user_message = item.get('content')
+                    break
         
         # 滚动到底部
         QTimer.singleShot(100, self.scroll_to_bottom)
-
+    
     def on_ai_sentence_ready(self, sentence, request_id):
         """处理单句AI响应"""
         # 如果请求ID不匹配当前活动请求，忽略这句话
@@ -497,7 +651,7 @@ class ChatWidget(QWidget):
             self.loading_bubble = None
         
         # 显示单句回复
-        ai_bubble = MessageBubble(sentence, is_user=False)
+        ai_bubble = MessageBubble(sentence, is_user=False, regenerate_callback=self.regenerate_message)
         self.messages_layout.addWidget(ai_bubble)
         
         # 滚动到底部
@@ -516,10 +670,10 @@ class ChatWidget(QWidget):
             self.loading_bubble.deleteLater()
             self.loading_bubble = None
             
-            # 对于非流式响应，才直接显示完整回复
-            if not self.ai_controller.ai_response_thread.use_streaming:
+            # 仅对于非流式响应，直接显示完整回复
+            # 对于流式响应，所有消息已通过on_ai_sentence_ready单句显示，不需要再次显示
+            if self.ai_controller and not self.ai_controller.ai_response_thread.use_streaming:
                 self.receive_ai_message(response)
-            # 否则不显示，等TTS播放时显示
     
     def on_ai_generation_cancelled(self):
         """处理AI生成被取消的情况"""
@@ -741,3 +895,435 @@ class ChatWidget(QWidget):
         # 如果有父类方法，调用它
         if hasattr(super(), 'closeEvent'):
             super().closeEvent(event)
+
+    def init_model_selector(self):
+        """初始化模型选择器"""
+        if not hasattr(self, 'model_selector') or not self.ai_controller:
+            return
+            
+        # 清空之前的项目
+        self.model_selector.clear()
+        
+        # 获取可用模型列表
+        models = self.ai_controller.get_available_models()
+        
+        # 获取当前模型
+        current_model = self.ai_controller.get_current_model()
+        current_name = current_model.get("name", "")
+        
+        # 添加模型到下拉框
+        for name, description in models.items():
+            self.model_selector.addItem(description, name)
+            
+            # 如果是当前模型，设置为当前选择项
+            if name == current_name:
+                self.model_selector.setCurrentText(description)
+        
+        # 连接信号
+        self.model_selector.currentIndexChanged.connect(self.on_model_changed)
+        
+    def on_model_changed(self, index):
+        """处理模型选择变化"""
+        if index < 0 or not self.ai_controller:
+            return
+            
+        # 获取选择的模型名
+        model_name = self.model_selector.currentData()
+        
+        # 切换前提示用户
+        if self.ai_controller.is_busy():
+            # 如果正在生成，提示用户等待完成
+            self.receive_ai_message("正在切换到新模型，请稍候...")
+            
+        # 切换模型
+        success = self.ai_controller.switch_model(model_name)
+        
+        if success:
+            model_info = self.ai_controller.get_current_model()
+            self.receive_ai_message(f"已切换至 {model_info.get('description', model_name)} 模型")
+        else:
+            self.receive_ai_message("切换模型失败")
+
+    def toggle_tts(self):
+        """切换TTS状态"""
+        if not self.ai_controller:
+            return
+            
+        # 获取当前状态并切换
+        current_state = self.ai_controller.is_tts_enabled()
+        new_state = not current_state
+        
+        # 更新AI控制器中的状态
+        success = self.ai_controller.toggle_tts(new_state)
+        
+        # 更新UI显示
+        if success:
+            if new_state:
+                # 启用TTS时显示音量图标
+                self.tts_toggle_button.setIcon(QIcon(get_asset_path("sound_on.svg")))
+                self.tts_toggle_button.setToolTip("点击关闭语音输出")
+                self.tts_toggle_button.setStyleSheet("""
+                    #ttsButton {
+                        background-color: #303F9F;
+                        border: 1px solid #1A237E;
+                        border-radius: 16px;
+                        padding: 5px;
+                    }
+                    #ttsButton:hover {
+                        background-color: #3949AB;
+                    }
+                """)
+                self.receive_ai_message("已启用语音输出")
+            else:
+                # 禁用TTS时显示静音图标
+                self.tts_toggle_button.setIcon(QIcon(get_asset_path("sound_off.svg")))
+                self.tts_toggle_button.setToolTip("点击开启语音输出")
+                self.tts_toggle_button.setStyleSheet("""
+                    #ttsButton {
+                        background-color: #E3F2FD;
+                        border: 1px solid #BBDEFB;
+                        border-radius: 16px;
+                        padding: 5px;
+                    }
+                    #ttsButton:hover {
+                        background-color: #BBDEFB;
+                    }
+                """)
+                self.receive_ai_message("已禁用语音输出")
+                
+    def update_tts_button_state(self):
+        """根据AI控制器中的TTS状态更新按钮显示"""
+        if not hasattr(self, 'tts_toggle_button') or not self.ai_controller:
+            return
+            
+        try:
+            tts_enabled = self.ai_controller.is_tts_enabled()
+            
+            if tts_enabled:
+                # 启用状态
+                self.tts_toggle_button.setIcon(QIcon(get_asset_path("sound_on.svg")))
+                self.tts_toggle_button.setToolTip("点击关闭语音输出")
+                self.tts_toggle_button.setStyleSheet("""
+                    #ttsButton {
+                        background-color: #303F9F;
+                        border: 1px solid #1A237E;
+                        border-radius: 16px;
+                        padding: 5px;
+                    }
+                    #ttsButton:hover {
+                        background-color: #3949AB;
+                    }
+                """)
+            else:
+                # 禁用状态
+                self.tts_toggle_button.setIcon(QIcon(get_asset_path("sound_off.svg")))
+                self.tts_toggle_button.setToolTip("点击开启语音输出")
+                self.tts_toggle_button.setStyleSheet("""
+                    #ttsButton {
+                        background-color: #E3F2FD;
+                        border: 1px solid #BBDEFB;
+                        border-radius: 16px;
+                        padding: 5px;
+                    }
+                    #ttsButton:hover {
+                        background-color: #BBDEFB;
+                    }
+                """)
+        except Exception as e:
+            print(f"更新TTS按钮状态失败: {str(e)}")
+
+    def on_paper_selected(self, paper_id):
+        """处理论文选择事件，加载对应的聊天记录"""
+        if self.ai_controller:
+            # 更新历史记录下拉框
+            self.update_history_selector(paper_id)
+            
+            # 加载最新的聊天记录
+            self.load_latest_conversation(paper_id)
+    
+    def update_history_selector(self, paper_id=None):
+        """更新历史记录选择器"""
+        if not self.ai_controller:
+            return
+            
+        # 清空当前选项
+        self.history_selector.clear()
+        self.history_selector.addItem("选择历史记录")
+        
+        # 获取指定论文的对话日期
+        dates = self.ai_controller.get_conversation_dates(paper_id)
+        
+        # 添加日期到下拉框
+        for date in dates:
+            self.history_selector.addItem(date)
+        
+        # 禁用信号处理以防止触发事件
+        self.history_selector.blockSignals(True)
+        self.history_selector.setCurrentIndex(0)
+        self.history_selector.blockSignals(False)
+    
+    def on_history_selected(self, index):
+        """处理历史记录选择事件"""
+        if index <= 0 or not self.ai_controller:
+            return
+            
+        # 获取选择的日期
+        date = self.history_selector.itemText(index)
+        
+        # 获取当前论文ID
+        paper_id = None
+        if self.paper_controller and self.paper_controller.current_paper:
+            paper_id = self.paper_controller.current_paper.get('id')
+        
+        if not paper_id:
+            return
+            
+        # 加载对话历史
+        self.load_conversation(paper_id, date)
+    
+    def load_conversation(self, paper_id, date=None):
+        """加载指定论文和日期的对话历史"""
+        if not self.ai_controller:
+            return
+            
+        # 清空消息区域
+        self.clear_messages()
+        
+        # 加载对话历史
+        success = self.ai_controller.load_conversation_history(paper_id, date)
+        
+        if success:
+            # 显示对话历史
+            self.display_conversation_history()
+    
+    def load_latest_conversation(self, paper_id):
+        """加载最新的对话历史"""
+        self.load_conversation(paper_id)
+    
+    def display_conversation_history(self):
+        """显示当前对话历史"""
+        if not self.ai_controller or not hasattr(self.ai_controller.ai_chat, 'conversation_history'):
+            return
+            
+        # 获取对话历史
+        conversation = self.ai_controller.ai_chat.conversation_history
+        
+        # 清空现有UI元素
+        self.clear_messages()
+        
+        # 记录已处理的消息数量，避免重复处理
+        processed_messages = []
+        
+        # 逐条显示消息
+        for message in conversation:
+            role = message.get('role')
+            content = message.get('content')
+            
+            # 生成消息唯一标识（基于内容+角色）
+            message_id = f"{role}:{content}"
+            
+            # 检查是否已处理过该消息
+            if message_id in processed_messages:
+                continue
+                
+            # 标记为已处理
+            processed_messages.append(message_id)
+            
+            if role == 'user':
+                # 显示用户消息
+                user_bubble = MessageBubble(content, is_user=True)
+                user_bubble.setMinimumWidth(300)
+                user_bubble.setMaximumWidth(600)
+                self.messages_layout.addWidget(user_bubble)
+                
+                # 保存最后一条用户消息，用于重新生成
+                self.last_user_message = content
+                
+            elif role == 'assistant':
+                # 显示AI消息 - 对于历史消息，仍然添加重新生成按钮
+                ai_bubble = MessageBubble(content, is_user=False, regenerate_callback=self.regenerate_message)
+                ai_bubble.setMinimumWidth(200)
+                ai_bubble.setMaximumWidth(550)
+                self.messages_layout.addWidget(ai_bubble)
+        
+        # 滚动到底部
+        QTimer.singleShot(100, self.scroll_to_bottom)
+
+    def clear_messages(self):
+        """清空消息区域"""
+        # 删除所有消息气泡
+        while self.messages_layout.count():
+            item = self.messages_layout.takeAt(0)
+            widget = item.widget()
+            if widget:
+                widget.deleteLater()
+        
+        # 清空最后一条用户消息记录
+        self.last_user_message = None
+    
+    def start_new_chat(self):
+        """开始新的对话"""
+        if not self.ai_controller:
+            return
+            
+        # 获取当前论文ID
+        paper_id = None
+        if self.paper_controller and self.paper_controller.current_paper:
+            paper_id = self.paper_controller.current_paper.get('id')
+        
+        if not paper_id:
+            self.receive_ai_message("请先选择一篇论文")
+            return
+            
+        # 清空消息区域
+        self.clear_messages()
+        
+        # 开始新的对话
+        success = self.ai_controller.start_new_conversation(paper_id)
+        
+        if success:
+            self.receive_ai_message("已开始新的对话")
+            
+            # 更新历史记录下拉框
+            self.update_history_selector(paper_id)
+    
+    def on_chat_history_updated(self, paper_id, date):
+        """处理聊天记录更新事件"""
+        # 获取当前论文ID
+        current_paper_id = None
+        if self.paper_controller and self.paper_controller.current_paper:
+            current_paper_id = self.paper_controller.current_paper.get('id')
+        
+        # 如果更新的是当前论文的记录，更新历史记录下拉框
+        if current_paper_id == paper_id:
+            self.update_history_selector(paper_id)
+
+    def regenerate_message(self):
+        """重新生成AI回复"""
+        # 如果没有最后一条用户消息，无法重新生成
+        if not hasattr(self, 'last_user_message') or not self.last_user_message:
+            # 查找最近的一条用户消息
+            if self.ai_controller and self.ai_controller.ai_chat and len(self.ai_controller.ai_chat.conversation_history) > 0:
+                history = self.ai_controller.ai_chat.conversation_history
+                for item in reversed(history):
+                    if item.get('role') == 'user':
+                        self.last_user_message = item.get('content')
+                        break
+            
+            if not self.last_user_message:
+                print("无法重新生成：找不到上一条用户消息")
+                return
+        
+        # 从消息历史中查找需要删除的内容 - 找到最后一组用户+AI消息
+        if self.ai_controller and self.ai_controller.ai_chat and len(self.ai_controller.ai_chat.conversation_history) > 0:
+            history = self.ai_controller.ai_chat.conversation_history
+            last_user_index = -1
+            last_ai_index = -1
+            
+            # 查找最后一个用户消息和之后的AI回复索引
+            for i in range(len(history) - 1, -1, -1):
+                if history[i].get('role') == 'user' and last_user_index == -1:
+                    last_user_index = i
+                elif history[i].get('role') == 'assistant' and i > last_user_index and last_ai_index == -1:
+                    last_ai_index = i
+                    break
+            
+            # 只删除最后一条AI消息
+            if last_ai_index != -1:
+                history.pop(last_ai_index)
+        
+        # 从UI中删除最后一个AI消息
+        user_message_found = False
+        for i in range(self.messages_layout.count() - 1, -1, -1):
+            item = self.messages_layout.itemAt(i)
+            widget = item.widget()
+            if isinstance(widget, MessageBubble):
+                if not widget.is_user and not user_message_found:
+                    # 删除最后一个AI消息
+                    self.messages_layout.removeWidget(widget)
+                    widget.deleteLater()
+                    break
+                elif widget.is_user:
+                    user_message_found = True
+        
+        # 添加加载动画
+        self.loading_bubble = LoadingBubble()
+        self.messages_layout.addWidget(self.loading_bubble)
+        self.scroll_to_bottom()
+        
+        # 重新发送用户消息以获取新的回复
+        if self.ai_controller:
+            # 获取当前论文ID，如果有的话
+            paper_id = None
+            if self.paper_controller and self.paper_controller.current_paper:
+                paper_id = self.paper_controller.current_paper.get('id')
+            
+            # 获取当前可见文本，如果有的话
+            visible_content = None
+            if hasattr(self, 'markdown_view') and self.markdown_view:
+                visible_content = self.markdown_view.get_current_visible_text()
+            
+            # 使用强制重新生成标志，以避免合并问题
+            message = self.last_user_message
+            request_id = self.ai_controller.get_ai_response(message, paper_id, visible_content, force_regenerate=True)
+            self.active_request_id = request_id
+
+    def refresh_ui(self):
+        """刷新UI界面，重新加载当前对话"""
+        # 显示刷新提示
+        self.show_refresh_toast()
+        
+        # 获取当前论文ID
+        paper_id = None
+        if self.paper_controller and self.paper_controller.current_paper:
+            paper_id = self.paper_controller.current_paper.get('id')
+        
+        if not paper_id or not self.ai_controller:
+            return
+            
+        # 备份当前选择的历史记录索引
+        current_history_index = self.history_selector.currentIndex()
+        
+        # 清空消息区域
+        self.clear_messages()
+        
+        # 如果已经选择了特定的历史记录，重新加载该记录
+        if current_history_index > 0:
+            date = self.history_selector.itemText(current_history_index)
+            self.load_conversation(paper_id, date)
+        else:
+            # 否则加载最新的对话
+            self.load_latest_conversation(paper_id)
+            
+    def show_refresh_toast(self):
+        """显示刷新提示"""
+        # 创建一个悬浮提示
+        toast = QFrame(self)
+        toast.setObjectName("refreshToast")
+        toast.setStyleSheet("""
+            #refreshToast {
+                background-color: rgba(25, 118, 210, 0.8);
+                border-radius: 16px;
+                color: white;
+                padding: 10px 20px;
+            }
+        """)
+        toast_layout = QHBoxLayout(toast)
+        toast_label = QLabel("正在刷新界面...")
+        toast_label.setStyleSheet("color: white; font-weight: bold;")
+        toast_layout.addWidget(toast_label)
+        
+        # 设置位置和大小
+        toast.setFixedSize(toast.sizeHint())
+        self.scroll_area.setEnabled(False)  # 临时禁用滚动区域防止交互
+        
+        # 计算居中位置
+        x = (self.width() - toast.width()) // 2
+        y = (self.height() - toast.height()) // 2
+        toast.move(x, y)
+        
+        # 显示提示
+        toast.show()
+        
+        # 设置定时器自动关闭提示
+        QTimer.singleShot(800, lambda: [toast.deleteLater(), self.scroll_area.setEnabled(True)])

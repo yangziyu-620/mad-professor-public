@@ -4,13 +4,79 @@ import json
 from data_manager import DataManager
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWebEngineCore import QWebEnginePage
-from PyQt6.QtCore import QUrl, pyqtSignal
+from PyQt6.QtCore import QUrl, pyqtSignal, Qt
+from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QPushButton, 
+                           QTextEdit, QLabel, QMenu, QComboBox, QMessageBox)
 from paths import get_font_path, get_asset_path
 
 class CustomWebEnginePage(QWebEnginePage):
     """自定义WebEnginePage，可以重写特定的事件处理方法"""
+    
+    text_selected = pyqtSignal(str, str)  # 文本选择信号(文本内容, 元素ID)
+    
     def __init__(self, parent=None):
         super().__init__(parent)
+        
+    def contextMenuEvent(self, event):
+        """自定义右键菜单事件"""
+        menu = QMenu()
+        
+        # 获取当前选中的文本和元素ID
+        self.runJavaScript("""
+            (function() {
+                var selection = window.getSelection();
+                var selectedText = selection.toString();
+                
+                // 找到包含选择内容的元素
+                var element = null;
+                if (selection.rangeCount > 0) {
+                    var range = selection.getRangeAt(0);
+                    element = range.commonAncestorContainer;
+                    
+                    // 如果是文本节点，则获取其父元素
+                    if (element.nodeType === 3) {
+                        element = element.parentNode;
+                    }
+                }
+                
+                var elementId = element ? element.id : '';
+                
+                return {
+                    selectedText: selectedText,
+                    elementId: elementId
+                };
+            })();
+        """, self._handle_text_selection)
+        
+        # 添加默认菜单项
+        action_back = menu.addAction("返回")
+        action_back.triggered.connect(self.triggerAction(QWebEnginePage.WebAction.Back))
+        
+        action_forward = menu.addAction("前进")
+        action_forward.triggered.connect(self.triggerAction(QWebEnginePage.WebAction.Forward))
+        
+        menu.addSeparator()
+        
+        # 添加编辑翻译菜单项
+        action_edit = menu.addAction("编辑翻译")
+        action_edit.triggered.connect(lambda: self.parent().edit_translation_from_context())
+        
+        # 添加复制菜单项
+        action_copy = menu.addAction("复制")
+        action_copy.triggered.connect(self.triggerAction(QWebEnginePage.WebAction.Copy))
+        
+        # 显示菜单
+        menu.exec(event.globalPos())
+        
+    def _handle_text_selection(self, result):
+        """处理文本选择结果"""
+        if result and isinstance(result, dict):
+            selected_text = result.get('selectedText', '')
+            element_id = result.get('elementId', '')
+            
+            # 发送信号
+            if selected_text:
+                self.text_selected.emit(selected_text, element_id)
 
 class MarkdownView(QWebEngineView):
     """
@@ -33,16 +99,26 @@ class MarkdownView(QWebEngineView):
         self.current_lang = "zh"  # 默认为中文
         self.docs = {"en": "", "zh": ""}
         self.current_visible_content = None
+        self.selected_element_id = ""  # 当前选中的元素ID
+        self.selected_text = ""        # 当前选中的文本
         
         # 设置自定义页面
         custom_page = CustomWebEnginePage(self)
         self.setPage(custom_page)
         
-        # 连接加载完成信号
+        # 连接信号
         self.loadFinished.connect(self.on_load_finished)
+        custom_page.text_selected.connect(self.on_text_selected)
         
         # 设置样式表
         self.setup_css()
+        
+        # 添加右键菜单
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        
+        # 编辑模式
+        self.edit_mode = False
+        self.editing_dialog = None
     
     def setup_css(self):
         """设置页面样式表"""
@@ -480,6 +556,31 @@ class MarkdownView(QWebEngineView):
     def set_data_manager(self, data_manager):
         """设置数据管理器引用"""
         self.data_manager = data_manager
+        
+        # 连接翻译更新信号
+        if hasattr(data_manager, 'translation_updated'):
+            data_manager.translation_updated.connect(self.on_translation_updated)
+    
+    def on_translation_updated(self, node_id, new_text, lang, paper_id):
+        """处理翻译更新事件"""
+        # 只有当当前语言匹配时才更新显示
+        if lang == self.current_lang:
+            # 更新界面显示
+            self.runJavaScript(f"""
+                (function() {{
+                    var element = document.getElementById('{node_id}');
+                    if (element) {{
+                        element.innerText = {json.dumps(new_text)};
+                        return true;
+                    }}
+                    return false;
+                }})();
+            """)
+            
+        # 如果是当前论文，重新获取可见内容
+        if self.data_manager and self.data_manager.current_paper and \
+           self.data_manager.current_paper.get('id') == paper_id:
+            self.get_visible_content()
     
     def _render_markdown(self):
         """
@@ -814,3 +915,183 @@ class MarkdownView(QWebEngineView):
         """
         
         self.page().runJavaScript(js_code)
+
+    def on_text_selected(self, selected_text, element_id):
+        """处理文本选择"""
+        self.selected_text = selected_text
+        self.selected_element_id = element_id
+        
+    def edit_translation_from_context(self):
+        """从右键菜单编辑翻译"""
+        # 检查是否有选中的文本和元素ID
+        if not self.selected_element_id:
+            QMessageBox.warning(self, "编辑失败", "无法识别可编辑的内容，请选择一个段落或标题再试。")
+            return
+            
+        # 获取当前文本内容
+        self.runJavaScript(f"""
+            (function() {{
+                var element = document.getElementById('{self.selected_element_id}');
+                return element ? element.innerText : '';
+            }})();
+        """, self._on_get_element_text)
+        
+    def _on_get_element_text(self, text):
+        """获取到元素文本内容后的回调"""
+        if not text:
+            QMessageBox.warning(self, "编辑失败", "无法获取文本内容。")
+            return
+            
+        # 打开编辑对话框
+        if not self.data_manager or not self.data_manager.current_paper:
+            QMessageBox.warning(self, "编辑失败", "无法获取当前论文信息。")
+            return
+            
+        paper_id = self.data_manager.current_paper.get('id')
+        element_id = self.selected_element_id
+        
+        # 加载翻译历史
+        history = self.data_manager.get_translation_history(paper_id, element_id)
+        
+        # 创建编辑对话框
+        self.show_edit_dialog(element_id, text, paper_id, history, self.current_lang)
+        
+    def show_edit_dialog(self, node_id, text, paper_id, history=None, lang="zh"):
+        """显示翻译编辑对话框
+        
+        Args:
+            node_id: 节点ID
+            text: 当前文本
+            paper_id: 论文ID
+            history: 历史记录
+            lang: 语言
+        """
+        # 创建对话框
+        dialog = QDialog(self)
+        dialog.setWindowTitle("编辑翻译")
+        dialog.setMinimumSize(700, 500)
+        
+        # 主布局
+        layout = QVBoxLayout(dialog)
+        
+        # 标题标签
+        title_label = QLabel(f"编辑 ID: {node_id}")
+        layout.addWidget(title_label)
+        
+        # 编辑框
+        edit_box = QTextEdit()
+        edit_box.setPlainText(text)
+        edit_box.setAcceptRichText(False)  # 仅接受纯文本
+        layout.addWidget(edit_box)
+        
+        # 历史记录下拉框
+        if history and len(history) > 0:
+            history_layout = QHBoxLayout()
+            history_label = QLabel("历史版本:")
+            history_combo = QComboBox()
+            
+            # 添加历史记录
+            for i, record in enumerate(history):
+                date_str = record.get("date", f"版本 {i+1}")
+                is_rollback = record.get("is_rollback", False)
+                label = f"{date_str} {'(回滚)' if is_rollback else ''}"
+                history_combo.addItem(label, record)
+                
+            # 历史版本加载事件
+            def load_history_version():
+                idx = history_combo.currentIndex()
+                if idx >= 0:
+                    record = history_combo.itemData(idx)
+                    if record:
+                        # 加载历史版本
+                        edit_box.setPlainText(record.get("edited_text", ""))
+            
+            history_combo.currentIndexChanged.connect(load_history_version)
+            
+            # 添加到布局
+            history_btn = QPushButton("加载选中版本")
+            history_btn.clicked.connect(load_history_version)
+            
+            history_layout.addWidget(history_label)
+            history_layout.addWidget(history_combo)
+            history_layout.addWidget(history_btn)
+            layout.addLayout(history_layout)
+        
+        # 按钮区域
+        button_layout = QHBoxLayout()
+        
+        # 导出按钮
+        export_btn = QPushButton("导出翻译")
+        export_btn.clicked.connect(lambda: self.export_translations(paper_id))
+        
+        # 取消按钮
+        cancel_btn = QPushButton("取消")
+        cancel_btn.clicked.connect(dialog.reject)
+        
+        # 保存按钮
+        save_btn = QPushButton("保存")
+        save_btn.setDefault(True)
+        
+        def save_translation():
+            # 获取编辑后文本
+            edited_text = edit_box.toPlainText()
+            
+            # 如果没有修改，直接关闭
+            if edited_text == text:
+                dialog.accept()
+                return
+                
+            # 更新翻译
+            if self.data_manager.update_translation(paper_id, node_id, text, edited_text, lang):
+                # 更新界面显示
+                self.runJavaScript(f"""
+                    (function() {{
+                        var element = document.getElementById('{node_id}');
+                        if (element) {{
+                            element.innerText = {json.dumps(edited_text)};
+                            return true;
+                        }}
+                        return false;
+                    }})();
+                """)
+                
+                # 保存成功，关闭对话框
+                dialog.accept()
+            else:
+                # 更新失败
+                QMessageBox.warning(dialog, "保存失败", "更新翻译时发生错误，请稍后再试。")
+        
+        save_btn.clicked.connect(save_translation)
+        
+        # 添加按钮到布局
+        button_layout.addWidget(export_btn)
+        button_layout.addStretch(1)
+        button_layout.addWidget(cancel_btn)
+        button_layout.addWidget(save_btn)
+        layout.addLayout(button_layout)
+        
+        # 显示对话框
+        self.editing_dialog = dialog
+        dialog.exec()
+        self.editing_dialog = None
+    
+    def export_translations(self, paper_id, include_history=False):
+        """导出翻译"""
+        if not self.data_manager:
+            QMessageBox.warning(self, "导出失败", "数据管理器未初始化。")
+            return
+            
+        try:
+            # 执行导出
+            export_path = self.data_manager.export_translations(paper_id, include_history)
+            
+            if export_path:
+                QMessageBox.information(
+                    self, "导出成功", 
+                    f"翻译导出成功!\n文件路径: {export_path}"
+                )
+            else:
+                QMessageBox.warning(self, "导出失败", "导出翻译失败，可能没有任何修改记录。")
+                
+        except Exception as e:
+            QMessageBox.critical(self, "导出错误", f"导出翻译时发生错误: {str(e)}")

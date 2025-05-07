@@ -199,7 +199,7 @@ class TTSManager(QObject):
             "text": text,
             "stream": True,
             "voice_setting": {
-                "voice_id": "leidianjiangjun",
+                "voice_id": "leidianjiangjun_001",
                 "speed": 1,
                 "vol": 1,
                 "pitch": 0,
@@ -226,13 +226,18 @@ class TTSManager(QObject):
         if not text or not text.strip():
             return
         
+        # 预处理文本 - 移除可能导致TTS问题的前缀省略号
+        clean_text = text
+        if clean_text.startswith("..."):
+            clean_text = clean_text.lstrip(".")
+        
         # 如果没有提供请求ID，生成一个特殊标记
         if request_id is None:
             request_id = "default_request"
         
         # 将请求添加到队列，包含文本、请求ID和情绪
-        self.request_queue.append((text, request_id, emotion))
-        print(f"已添加TTS请求到队列: '{text[:20]}...' (请求ID: {request_id}, 情绪: {emotion})")
+        self.request_queue.append((clean_text, request_id, emotion))
+        print(f"已添加TTS请求到队列: '{clean_text[:20]}...' (请求ID: {request_id}, 情绪: {emotion})")
         
         # 如果当前没有处理中的请求，开始处理
         if not self.is_processing:

@@ -310,9 +310,10 @@ class MarkdownProcessor:
         in_references = False      # 是否已到参考文献部分
         authors_content = []       # 作者信息内容
         has_started = False       # 文档解析是否已开始
+        abstract_found = False    # 标记是否已识别到摘要
         
         # 逐行处理文档
-        for line in lines:
+        for i, line in enumerate(lines):
             title_match = self.title_pattern.match(line)
 
             # 检查是否是非标准格式的参考文献行
@@ -363,8 +364,17 @@ class MarkdownProcessor:
                     has_started = True
                     continue
                 
+                ######## 新增: 检查后续10行是否存在Abstract
+                next_lines = lines[i+1:i+10] if i+10 <= len(lines) else lines[i+1:]
+                has_abstract = any(self.abstract_pattern.match(l) for l in next_lines)
+                if not has_abstract:
+                    collecting_authors = False
+                    result['authors_info'] = ""
+                ##########
+                
                 # 处理摘要部分
                 if self.abstract_pattern.match(line):
+                    abstract_found = True
                     # 获取完整的作者信息文本
                     authors_text = '\n'.join(authors_content).strip()
                     authors_lines = authors_text.split('\n')
@@ -456,6 +466,37 @@ class MarkdownProcessor:
                     authors_content.append(line)
                 else:
                     current_content.append(line)
+        
+        # ------- 新增: 补充处理非标准摘要 -------
+        if not abstract_found:
+            # 再次遍历，查找非标题行的abstract关键词
+            for i, line in enumerate(lines):
+                if (
+                    'abstract' in line.lower() and
+                    not self.title_pattern.match(line) and
+                    not self.reference_pattern.match(line) and
+                    len(line.strip()) > 0
+                ):
+                    # 作为摘要section起始
+                    number, raw_title, level = self.parse_section_number('Abstract')
+                    abstract_section = Section(
+                        title='Abstract',
+                        number=number,
+                        level=level,
+                        content=[],
+                        raw_title=raw_title,
+                        type='abstract'
+                    )
+                    # 摘要内容为该行及其后直到下一个标题或文档结尾
+                    abstract_content = []
+                    for j in range(i, len(lines)):
+                        if self.title_pattern.match(lines[j]) or self.reference_pattern.match(lines[j]):
+                            break
+                        abstract_content.append(lines[j])
+                    # 解析段落
+                    abstract_section.content = self.parse_content(abstract_content)
+                    result['sections'].insert(0, vars(abstract_section))
+                    break
         
         # 构建层级结构（包含连续性检查）
         result['sections'] = self.build_hierarchy(result['sections'])

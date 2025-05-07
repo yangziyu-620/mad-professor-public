@@ -296,11 +296,20 @@ class AIProfessorUI(QMainWindow):
         self.chat_widget.set_paper_controller(self.data_manager)
         self.chat_widget.set_ai_controller(self.ai_manager)
         self.chat_widget.set_markdown_view(self.md_view) 
+
+        # 设置聊天窗口最小宽度，确保不会过度收缩
+        self.chat_widget.setMinimumWidth(350)  # 最小宽度为350像素
         
         # 添加到分隔器并设置初始比例
         splitter.addWidget(md_container)
         splitter.addWidget(self.chat_widget)
-        splitter.setSizes([int(self.width() * 0.6), int(self.width() * 0.4)])
+        
+        # 设置初始比例为60:40，这样既保证论文区域有足够空间，也确保聊天区域不会太窄
+        splitter.setSizes([int(self.width() * 0.65), int(self.width() * 0.35)])
+        
+        # 设置伸缩因子，使得调整窗口大小时，论文区域优先缩放
+        splitter.setStretchFactor(0, 2)  # 文档区域的伸缩因子
+        splitter.setStretchFactor(1, 1)  # 聊天区域的伸缩因子
         
         return splitter
 
@@ -429,6 +438,7 @@ class AIProfessorUI(QMainWindow):
         self.sidebar.upload_file.connect(self.data_manager.upload_file)
         self.sidebar.pause_processing.connect(self.data_manager.pause_processing)
         self.sidebar.resume_processing.connect(self.data_manager.resume_processing)
+        self.sidebar.update_paper_field.connect(self.data_manager.update_paper_field)
 
         # 连接数据管理器的论文数据信号
         self.sidebar.resume_processing.connect(self.data_manager.resume_processing)
@@ -452,14 +462,15 @@ class AIProfessorUI(QMainWindow):
         self.data_manager.initialize_processing_system()
 
     def on_papers_loaded(self, papers):
-        """
-        处理论文列表加载完成的信号
+        """处理论文加载完成事件"""
+        # 更新侧边栏论文列表
+        if hasattr(self, 'sidebar'):
+            self.sidebar.load_papers(papers)
         
-        Args:
-            papers: 论文数据列表
-        """
-        self.sidebar.load_papers(papers)
-        
+        # 获取按领域分类的论文数据，用于控制台输出
+        field_groups = self.data_manager.get_papers_by_field()
+        self.statusBar().showMessage(f"已加载 {len(papers)} 篇论文，分为 {len(field_groups)} 个领域")
+
     def on_paper_selected(self, paper_id):
         """
         处理论文选择事件
@@ -471,6 +482,9 @@ class AIProfessorUI(QMainWindow):
         """
         # 通知数据管理器加载选定的论文
         self.data_manager.load_paper_content(paper_id)
+        
+        # 通知聊天组件论文已更改，加载相应的聊天记录
+        self.chat_widget.on_paper_selected(paper_id)
 
     def on_paper_content_loaded(self, paper, zh_content, en_content):
         """
