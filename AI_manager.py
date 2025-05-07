@@ -720,3 +720,62 @@ class AIManager(QObject):
             Dict[str, List[str]]: {论文ID: [日期列表]}
         """
         return self.chat_history_manager.get_all_paper_conversations()
+
+    def get_available_providers(self):
+        """获取所有可用的提供商
+        
+        Returns:
+            dict: 提供商名称和描述的字典
+        """
+        try:
+            from config import LLMClient
+            llm_client = LLMClient()
+            return llm_client.get_available_providers()
+        except Exception as e:
+            print(f"获取可用提供商失败: {str(e)}")
+            return {}
+
+    def get_provider_models(self, provider_name):
+        """获取指定提供商的所有模型
+        
+        Args:
+            provider_name: 提供商名称
+            
+        Returns:
+            dict: 该提供商下所有模型的ID和描述
+        """
+        try:
+            from config import LLMClient
+            llm_client = LLMClient()
+            return llm_client.get_provider_models(provider_name)
+        except Exception as e:
+            print(f"获取提供商模型失败: {str(e)}")
+            return {}
+
+    def get_current_provider(self):
+        """获取当前使用的提供商名称
+        
+        Returns:
+            str: 提供商名称
+        """
+        try:
+            from config import LLMClient
+            llm_client = LLMClient()
+            return llm_client.get_current_provider()
+        except Exception as e:
+            print(f"获取当前提供商失败: {str(e)}")
+            return ""
+
+    def get_current_model_id(self):
+        """获取当前选择的模型ID
+        
+        Returns:
+            str: 当前模型ID
+        """
+        try:
+            from config import LLMClient
+            llm_client = LLMClient()
+            return llm_client.current_preset
+        except Exception as e:
+            print(f"获取当前模型ID失败: {str(e)}")
+            return ""

@@ -1,6 +1,6 @@
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, 
                            QTextEdit, QScrollArea, QLabel, QFrame, QComboBox, QMenu)
-from PyQt6.QtCore import Qt, QTimer, QSize
+from PyQt6.QtCore import Qt, QTimer, QSize, QPropertyAnimation, QEasingCurve
 from PyQt6.QtGui import QIcon, QFont
 
 # 导入自定义组件和工具类
@@ -96,7 +96,7 @@ class ChatWidget(QWidget):
         # 标题栏
         title_bar = QFrame()
         title_bar.setObjectName("chatTitleBar")
-        title_bar.setFixedHeight(40)
+        title_bar.setFixedHeight(36)  # 减小高度，使界面更紧凑
         title_bar.setStyleSheet("""
             #chatTitleBar {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:0, 
@@ -109,51 +109,56 @@ class ChatWidget(QWidget):
         
         # 标题栏布局
         title_layout = QHBoxLayout(title_bar)
-        title_layout.setContentsMargins(15, 0, 15, 0)
+        title_layout.setContentsMargins(8, 0, 8, 0)  # 减小左右边距
+        title_layout.setSpacing(8)  # 减小组件间距
         
         # 设置标题文本和字体
         title_font = QFont("Source Han Sans SC", 11, QFont.Weight.Bold)
         title_label = QLabel("你的导师")
         title_label.setFont(title_font)
         title_label.setStyleSheet("color: white; font-weight: bold;")
+        title_label.setMinimumWidth(60)  # 减小最小宽度
         
-        # 添加刷新按钮
+        # 添加刷新按钮 - 优化对比度和细节
         self.refresh_button = QPushButton()
         self.refresh_button.setIcon(QIcon(get_asset_path("refresh.svg")))
         self.refresh_button.setToolTip("刷新界面")
-        self.refresh_button.setFixedSize(32, 32)
+        self.refresh_button.setFixedSize(30, 30)  # 减小按钮尺寸
+        self.refresh_button.setIconSize(QSize(16, 16))  # 减小图标尺寸
         self.refresh_button.setStyleSheet("""
             QPushButton {
-                background-color: rgba(255, 255, 255, 0.2);
-                border: 1px solid rgba(255, 255, 255, 0.3);
-                border-radius: 16px;
-                padding: 4px;
+                background-color: rgba(255, 255, 255, 0.3);
+                border: 1px solid rgba(255, 255, 255, 0.5);
+                border-radius: 15px;
+                padding: 3px;
             }
             QPushButton:hover {
-                background-color: rgba(255, 255, 255, 0.3);
+                background-color: rgba(255, 255, 255, 0.5);
             }
             QPushButton:pressed {
-                background-color: rgba(255, 255, 255, 0.4);
+                background-color: rgba(255, 255, 255, 0.6);
             }
         """)
         self.refresh_button.clicked.connect(self.refresh_ui)
         
-        # 添加历史记录下拉菜单
+        # 添加历史记录下拉菜单 - 减小宽度
         self.history_selector = QComboBox()
-        self.history_selector.setFixedWidth(120)
+        self.history_selector.setFixedWidth(110)  # 减小宽度
+        self.history_selector.setFixedHeight(24)  # 减小高度
         self.history_selector.setStyleSheet("""
             QComboBox {
-                background-color: rgba(255, 255, 255, 0.2);
+                background-color: rgba(255, 255, 255, 0.25);
                 color: white;
-                border: 1px solid rgba(255, 255, 255, 0.3);
+                border: 1px solid rgba(255, 255, 255, 0.4);
                 border-radius: 4px;
                 padding: 2px 5px;
+                font-size: 12px;
             }
             QComboBox::drop-down {
                 subcontrol-origin: padding;
                 subcontrol-position: top right;
                 width: 20px;
-                border-left: 1px solid rgba(255, 255, 255, 0.3);
+                border-left: 1px solid rgba(255, 255, 255, 0.4);
             }
             QComboBox QAbstractItemView {
                 background-color: #2C3E50;
@@ -164,39 +169,69 @@ class ChatWidget(QWidget):
         self.history_selector.addItem("选择历史记录")
         self.history_selector.currentIndexChanged.connect(self.on_history_selected)
         
-        # 添加新对话按钮
+        # 添加新对话按钮 - 统一样式
         self.new_chat_button = QPushButton("新对话")
-        self.new_chat_button.setFixedWidth(80)
+        self.new_chat_button.setFixedWidth(85)
+        self.new_chat_button.setFixedHeight(30)  # 固定高度
         self.new_chat_button.setStyleSheet("""
             QPushButton {
-                background-color: rgba(255, 255, 255, 0.2);
+                background-color: rgba(255, 255, 255, 0.25);
                 color: white;
-                border: 1px solid rgba(255, 255, 255, 0.3);
+                border: 1px solid rgba(255, 255, 255, 0.4);
                 border-radius: 4px;
                 padding: 2px 5px;
+                font-size: 12px;
             }
             QPushButton:hover {
-                background-color: rgba(255, 255, 255, 0.3);
+                background-color: rgba(255, 255, 255, 0.35);
             }
         """)
         self.new_chat_button.clicked.connect(self.start_new_chat)
         
-        # 添加模型选择下拉框
-        self.model_selector = QComboBox()
-        self.model_selector.setFixedWidth(150)
-        self.model_selector.setStyleSheet("""
+        # 添加API提供商选择下拉框 - 统一风格
+        self.provider_selector = QComboBox()
+        self.provider_selector.setFixedWidth(140)  # 调整宽度
+        self.provider_selector.setFixedHeight(30)  # 固定高度
+        self.provider_selector.setStyleSheet("""
             QComboBox {
-                background-color: rgba(255, 255, 255, 0.2);
+                background-color: rgba(255, 255, 255, 0.25);
                 color: white;
-                border: 1px solid rgba(255, 255, 255, 0.3);
+                border: 1px solid rgba(255, 255, 255, 0.4);
                 border-radius: 4px;
                 padding: 2px 5px;
+                font-size: 12px;
             }
             QComboBox::drop-down {
                 subcontrol-origin: padding;
                 subcontrol-position: top right;
                 width: 20px;
-                border-left: 1px solid rgba(255, 255, 255, 0.3);
+                border-left: 1px solid rgba(255, 255, 255, 0.4);
+            }
+            QComboBox QAbstractItemView {
+                background-color: #2C3E50;
+                color: white;
+                selection-background-color: #34495E;
+            }
+        """)
+        
+        # 添加模型选择下拉框 - 统一风格
+        self.model_selector = QComboBox()
+        self.model_selector.setFixedWidth(160)  # 增加宽度以显示更多内容
+        self.model_selector.setFixedHeight(30)  # 固定高度
+        self.model_selector.setStyleSheet("""
+            QComboBox {
+                background-color: rgba(255, 255, 255, 0.25);
+                color: white;
+                border: 1px solid rgba(255, 255, 255, 0.4);
+                border-radius: 4px;
+                padding: 2px 5px;
+                font-size: 12px;
+            }
+            QComboBox::drop-down {
+                subcontrol-origin: padding;
+                subcontrol-position: top right;
+                width: 20px;
+                border-left: 1px solid rgba(255, 255, 255, 0.4);
             }
             QComboBox QAbstractItemView {
                 background-color: #2C3E50;
@@ -210,6 +245,7 @@ class ChatWidget(QWidget):
         title_layout.addStretch(1)
         title_layout.addWidget(self.history_selector)
         title_layout.addWidget(self.new_chat_button)
+        title_layout.addWidget(self.provider_selector)
         title_layout.addWidget(self.model_selector)
         
         return title_bar
@@ -239,7 +275,7 @@ class ChatWidget(QWidget):
         container_layout.setContentsMargins(10, 10, 10, 10)
         
         # 创建消息显示区域
-        self.scroll_area = self.create_message_display_area()
+        self.scroll_area = self.create_chat_area()
         
         # 创建输入区域
         input_frame = self.create_input_area()
@@ -250,50 +286,70 @@ class ChatWidget(QWidget):
         
         return chat_container
     
-    def create_message_display_area(self):
+    def create_chat_area(self):
         """
-        创建消息显示区域
+        创建聊天消息区域
         
         Returns:
             QScrollArea: 配置好的消息滚动区域
         """
         # 创建滚动区域
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setFrameShape(QFrame.Shape.NoFrame)
-        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll_area.setStyleSheet("""
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.scroll_area.setStyleSheet("""
             QScrollArea {
-                background-color: #FFFFFF;
-                border: 1px solid #E0E0E0;
-                border-radius: 8px;
+                background-color: #F5F7FA;
+                border: none;
+                border-radius: 0px;
+            }
+            QScrollBar:vertical {
+                border: none;
+                background-color: #F5F7FA;
+                width: 12px;
+                margin: 0px;
+            }
+            QScrollBar::handle:vertical {
+                background-color: #C5CAE9;
+                border-radius: 6px;
+                min-height: 30px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background-color: #9FA8DA;
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                height: 0px;
+            }
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+                background: none;
             }
         """)
         
-        # 创建消息容器
+        # 创建内容容器
         self.messages_container = QWidget()
         self.messages_container.setObjectName("messagesContainer")
-        
-        # 设置消息容器样式 - 确保内容宽度能够填充整个可见区域
         self.messages_container.setStyleSheet("""
             #messagesContainer {
-                background-color: #FFFFFF;
+                background-color: #F5F7FA;
                 border-radius: 8px;
             }
         """)
         
-        # 创建消息布局并设置伸缩性 - 重要：防止内容收缩
+        # 创建垂直布局用于存放消息
         self.messages_layout = QVBoxLayout(self.messages_container)
-        self.messages_layout.setContentsMargins(15, 15, 15, 15)
-        self.messages_layout.setSpacing(15)
+        self.messages_layout.setContentsMargins(15, 15, 15, 15)  # 增加边距
+        self.messages_layout.setSpacing(15)  # 增加消息间距
         self.messages_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
-        self.messages_layout.setSizeConstraint(QVBoxLayout.SizeConstraint.SetMinAndMaxSize)
         
-        # 设置滚动区域的窗口部件
-        scroll_area.setWidget(self.messages_container)
+        # 添加弹性空间，使消息保持在顶部
+        self.messages_layout.addStretch(1)
         
-        return scroll_area
-    
+        # 设置滚动区域的内容
+        self.scroll_area.setWidget(self.messages_container)
+        
+        return self.scroll_area
+
     def create_input_area(self):
         """
         创建消息输入区域
@@ -314,22 +370,23 @@ class ChatWidget(QWidget):
         """)
         
         input_layout = QVBoxLayout(input_frame)
-        input_layout.setContentsMargins(12, 12, 12, 12)
-        input_layout.setSpacing(10)  # 增加间距
+        input_layout.setContentsMargins(15, 15, 15, 15)  # 增加内边距
+        input_layout.setSpacing(12)  # 增加间距
         
         # 创建文本输入框
         self.message_input = QTextEdit()
         self.message_input.setPlaceholderText("输入您对导师的问题...")
-        self.message_input.setMaximumHeight(100)
+        self.message_input.setMinimumHeight(60)  # 设置最小高度
+        self.message_input.setMaximumHeight(120)  # 增加最大高度
         self.message_input.setObjectName("messageInput")
         self.message_input.setStyleSheet("""
             #messageInput {
                 border: none;
                 background-color: #F5F7FA;
-                border-radius: 8px;
-                padding: 10px;  /* 增加内边距 */
+                border-radius: 10px;
+                padding: 12px;  /* 增加内边距 */
                 font-family: 'Source Han Sans SC', 'Segoe UI', sans-serif;
-                font-size: 13px;
+                font-size: 14px;  /* 增大字体 */
             }
         """)
         # 连接回车键发送功能
@@ -339,7 +396,7 @@ class ChatWidget(QWidget):
         control_container = QWidget()
         control_layout = QHBoxLayout(control_container)
         control_layout.setContentsMargins(0, 8, 0, 0)
-        control_layout.setSpacing(12)  # 增加控件间距
+        control_layout.setSpacing(15)  # 增加控件间距
         
         # 创建语音控制区
         voice_container = self.create_voice_container()
@@ -366,36 +423,37 @@ class ChatWidget(QWidget):
         voice_container = QWidget()
         voice_layout = QHBoxLayout(voice_container)
         voice_layout.setContentsMargins(0, 0, 0, 0)
-        voice_layout.setSpacing(10)
+        voice_layout.setSpacing(12)  # 增加间距
         
-        # 状态指示灯 - 保持不变
+        # 状态指示灯 - 增大尺寸
         self.voice_status_indicator = QLabel()
-        self.voice_status_indicator.setFixedSize(10, 10)
+        self.voice_status_indicator.setFixedSize(12, 12)  # 稍微增大
         self.voice_status_indicator.setStyleSheet("""
             background-color: #9E9E9E;
-            border-radius: 5px;
-            border: 1px solid rgba(0, 0, 0, 0.1);
+            border-radius: 6px;
+            border: 1px solid rgba(0, 0, 0, 0.2);
         """)
         voice_layout.addWidget(self.voice_status_indicator)
         
-        # 麦克风按钮 - 保持不变
+        # 麦克风按钮 - 优化样式
         self.voice_button = self.create_voice_button()
         voice_layout.addWidget(self.voice_button)
         
-        # 添加TTS开关按钮
+        # 添加TTS开关按钮 - 统一样式
         self.tts_toggle_button = self.create_tts_toggle_button()
         voice_layout.addWidget(self.tts_toggle_button)
         
-        # 创建可交互的设备选择组件
+        # 创建可交互的设备选择组件 - 优化样式
         self.device_combo = QComboBox()
-        self.device_combo.setFixedWidth(185)
+        self.device_combo.setFixedWidth(200)  # 增加宽度
+        self.device_combo.setFixedHeight(32)  # 增加高度
         self.device_combo.setObjectName("deviceCombo")
         
         # 优化样式：修复三角形和添加下拉列表圆角
         self.device_combo.setStyleSheet("""
             QComboBox {
                 border: 1px solid #C5CAE9;
-                border-radius: 5px;
+                border-radius: 6px;
                 padding: 4px 10px 4px 8px;
                 background-color: white;
                 color: #303F9F;
@@ -414,14 +472,14 @@ class ChatWidget(QWidget):
                 subcontrol-position: center right;
                 width: 16px;
                 border-left: 1px solid #C5CAE9;
-                border-top-right-radius: 4px;
-                border-bottom-right-radius: 4px;
+                border-top-right-radius: 5px;
+                border-bottom-right-radius: 5px;
                 background-color: #E8EAF6;
             }
             QComboBox::down-arrow {
                 image: url(""" + get_asset_path("down_arrow.svg").replace("\\", "/") + """);
-                width: 10px;
-                height: 10px;
+                width: 12px;
+                height: 12px;
             }
             QComboBox QAbstractItemView {
                 border: 1px solid #C5CAE9;
@@ -450,22 +508,22 @@ class ChatWidget(QWidget):
         voice_button = QPushButton()
         voice_button.setIcon(QIcon(get_asset_path("microphone.svg")))
         voice_button.setObjectName("voiceButton")
-        voice_button.setFixedSize(32, 32)
+        voice_button.setFixedSize(36, 36)  # 增大按钮
         voice_button.setCursor(Qt.CursorShape.PointingHandCursor)
         voice_button.setToolTip("点击开启/关闭语音识别")
-        voice_button.setIconSize(QSize(16, 16))
+        voice_button.setIconSize(QSize(18, 18))  # 增大图标
         voice_button.setStyleSheet("""
             #voiceButton {
                 background-color: #E3F2FD;
                 border: 1px solid #BBDEFB;
-                border-radius: 16px;
+                border-radius: 18px;
                 padding: 5px;
             }
             #voiceButton:hover {
                 background-color: #BBDEFB;
             }
         """)
-        voice_button.clicked.connect(self.toggle_voice_chat)
+        voice_button.clicked.connect(self.toggle_voice_detection)
         
         return voice_button
     
@@ -478,15 +536,15 @@ class ChatWidget(QWidget):
         tts_button = QPushButton()
         tts_button.setIcon(QIcon(get_asset_path("sound_on.svg")))
         tts_button.setObjectName("ttsButton")
-        tts_button.setFixedSize(32, 32)
+        tts_button.setFixedSize(36, 36)  # 增大按钮
         tts_button.setCursor(Qt.CursorShape.PointingHandCursor)
         tts_button.setToolTip("点击开启/关闭语音输出")
-        tts_button.setIconSize(QSize(16, 16))
+        tts_button.setIconSize(QSize(18, 18))  # 增大图标
         tts_button.setStyleSheet("""
             #ttsButton {
                 background-color: #E3F2FD;
                 border: 1px solid #BBDEFB;
-                border-radius: 16px;
+                border-radius: 18px;
                 padding: 5px;
             }
             #ttsButton:hover {
@@ -507,8 +565,8 @@ class ChatWidget(QWidget):
         send_button = QPushButton("发送")
         send_button.setCursor(Qt.CursorShape.PointingHandCursor)
         send_button.setObjectName("sendButton")
-        send_button.setFixedHeight(36)  # 增加高度
-        send_button.setMinimumWidth(100)  # 增加宽度
+        send_button.setFixedHeight(40)  # 进一步增加高度
+        send_button.setMinimumWidth(110)  # 增加宽度
         
         # 美化发送按钮
         send_button.setStyleSheet("""
@@ -517,10 +575,10 @@ class ChatWidget(QWidget):
                              stop:0 #303F9F, stop:1 #1A237E);
                 color: white;
                 border: none;
-                border-radius: 8px;
-                padding: 8px 20px;
+                border-radius: 10px;
+                padding: 10px 24px;
                 font-weight: bold;
-                font-size: 14px;
+                font-size: 15px;
             }
             #sendButton:hover {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:0, 
@@ -528,8 +586,8 @@ class ChatWidget(QWidget):
             }
             #sendButton:pressed {
                 background: #1A237E;
-                padding-left: 22px;
-                padding-top: 10px;
+                padding-left: 26px;
+                padding-top: 12px;
             }
         """)
         send_button.clicked.connect(self.send_message)
@@ -693,11 +751,11 @@ class ChatWidget(QWidget):
             self.scroll_area.verticalScrollBar().maximum()
         )
     
-    def toggle_voice_chat(self):
-        """切换语音聊天功能开关"""
+    def toggle_voice_detection(self):
+        """显示语音录制状态变化"""
         if not self.ai_controller:
             return
-            
+        
         self.is_voice_active = not self.is_voice_active
         success = self.ai_controller.toggle_voice_detection(self.is_voice_active)
         
@@ -705,13 +763,13 @@ class ChatWidget(QWidget):
         if success and self.is_voice_active:
             # 绿色表示激活待命状态
             self.set_indicator_color(self.COLOR_ACTIVE)
-            self.voice_button.setToolTip("点击关闭语音识别")
+            self.voice_button.setToolTip("点击停止语音输入")
             self.voice_button.setStyleSheet("""
                 #voiceButton {
                     background-color: #303F9F;
                     border: 1px solid #1A237E;
-                    border-radius: 16px;
-                    padding: 5px;
+                    border-radius: 13px;
+                    padding: 3px;
                 }
                 #voiceButton:hover {
                     background-color: #3949AB;
@@ -721,13 +779,13 @@ class ChatWidget(QWidget):
             self.is_voice_active = False  # 如果失败，重置状态
             # 蓝色表示初始化完成但未激活
             self.set_indicator_color(self.COLOR_INIT)
-            self.voice_button.setToolTip("点击开启语音识别")
+            self.voice_button.setToolTip("点击开始语音输入")
             self.voice_button.setStyleSheet("""
                 #voiceButton {
                     background-color: #E3F2FD;
                     border: 1px solid #BBDEFB;
-                    border-radius: 16px;
-                    padding: 5px;
+                    border-radius: 13px;
+                    padding: 3px;
                 }
                 #voiceButton:hover {
                     background-color: #BBDEFB;
@@ -738,8 +796,8 @@ class ChatWidget(QWidget):
         """设置语音状态指示灯颜色"""
         self.voice_status_indicator.setStyleSheet(f"""
             background-color: {color}; 
-            border-radius: 5px;
-            border: 1px solid rgba(0, 0, 0, 0.1);
+            border-radius: 6px;
+            border: 1px solid rgba(0, 0, 0, 0.2);
         """)
     
     def init_voice_recognition(self):
@@ -897,31 +955,104 @@ class ChatWidget(QWidget):
             super().closeEvent(event)
 
     def init_model_selector(self):
-        """初始化模型选择器"""
-        if not hasattr(self, 'model_selector') or not self.ai_controller:
+        """初始化API提供商选择器和模型选择器"""
+        if not hasattr(self, 'provider_selector') or not hasattr(self, 'model_selector') or not self.ai_controller:
             return
-            
+        
         # 清空之前的项目
+        self.provider_selector.clear()
         self.model_selector.clear()
         
-        # 获取可用模型列表
-        models = self.ai_controller.get_available_models()
+        # 获取所有提供商
+        providers = self.ai_controller.get_available_providers()
+        
+        # 获取当前模型和提供商
+        current_model = self.ai_controller.get_current_model()
+        current_provider = self.ai_controller.get_current_provider()
+        
+        # 填充提供商选择器
+        for provider_name, provider_display in providers.items():
+            self.provider_selector.addItem(provider_display, provider_name)
+        
+        # 连接提供商选择器信号
+        self.provider_selector.currentIndexChanged.connect(self.on_provider_changed)
+        
+        # 设置当前提供商
+        if current_provider:
+            # 查找当前提供商的索引
+            for i in range(self.provider_selector.count()):
+                if self.provider_selector.itemData(i) == current_provider:
+                    self.provider_selector.setCurrentIndex(i)
+                    break
+        else:
+            # 如果找不到当前提供商，选择第一个
+            if self.provider_selector.count() > 0:
+                self.on_provider_changed(0)
+
+    def on_provider_changed(self, index):
+        """处理提供商选择变化"""
+        if index < 0 or not self.ai_controller:
+            return
+        
+        # 获取选择的提供商名称
+        provider_name = self.provider_selector.currentData()
+        
+        # 清空模型选择器
+        self.model_selector.clear()
         
         # 获取当前模型
         current_model = self.ai_controller.get_current_model()
         current_name = current_model.get("name", "")
+        current_id = self.ai_controller.get_current_model_id()
         
-        # 添加模型到下拉框
-        for name, description in models.items():
-            self.model_selector.addItem(description, name)
+        # 获取该提供商下的所有模型
+        provider_models = self.ai_controller.get_provider_models(provider_name)
+        
+        # 添加该提供商下的模型到模型选择器
+        for model_id, description in provider_models.items():
+            # 提取更简洁的模型名称显示
+            display_name = self.get_simplified_model_name(description)
+            self.model_selector.addItem(display_name, model_id)
             
             # 如果是当前模型，设置为当前选择项
-            if name == current_name:
-                self.model_selector.setCurrentText(description)
+            if model_id == current_id:
+                self.model_selector.setCurrentText(display_name)
         
-        # 连接信号
+        # 连接模型选择器信号（如果尚未连接）
+        try:
+            self.model_selector.currentIndexChanged.disconnect(self.on_model_changed)
+        except:
+            pass
         self.model_selector.currentIndexChanged.connect(self.on_model_changed)
         
+        # 如果当前没有选中的模型，选择第一个
+        if self.model_selector.currentIndex() < 0 and self.model_selector.count() > 0:
+            self.model_selector.setCurrentIndex(0)
+            # 手动调用模型变更方法以确保切换到第一个模型
+            self.on_model_changed(0)
+
+    def get_simplified_model_name(self, full_description):
+        """从完整描述中提取简洁的模型名称"""
+        # 针对不同提供商的特殊处理
+        if "DeepSeek" in full_description:
+            if "0324" in full_description:
+                return "DeepSeek-V3 0324"
+            return "DeepSeek-V3"
+        elif "Claude" in full_description:
+            if "Sonnet" in full_description:
+                return "Claude 3.5 Sonnet"
+            return full_description
+        elif "ChatGPT" in full_description or "GPT-" in full_description:
+            if "mini" in full_description:
+                return "GPT-4o-mini"
+            return full_description
+        elif "Grok" in full_description:
+            return "Grok-3-beta"
+        elif "QWQ" in full_description or "Qwen" in full_description:
+            return "QWQ-32B"
+        else:
+            return full_description
+
     def on_model_changed(self, index):
         """处理模型选择变化"""
         if index < 0 or not self.ai_controller:
@@ -966,7 +1097,7 @@ class ChatWidget(QWidget):
                     #ttsButton {
                         background-color: #303F9F;
                         border: 1px solid #1A237E;
-                        border-radius: 16px;
+                        border-radius: 18px;
                         padding: 5px;
                     }
                     #ttsButton:hover {
@@ -982,7 +1113,7 @@ class ChatWidget(QWidget):
                     #ttsButton {
                         background-color: #E3F2FD;
                         border: 1px solid #BBDEFB;
-                        border-radius: 16px;
+                        border-radius: 18px;
                         padding: 5px;
                     }
                     #ttsButton:hover {
@@ -1007,7 +1138,7 @@ class ChatWidget(QWidget):
                     #ttsButton {
                         background-color: #303F9F;
                         border: 1px solid #1A237E;
-                        border-radius: 16px;
+                        border-radius: 18px;
                         padding: 5px;
                     }
                     #ttsButton:hover {
@@ -1022,7 +1153,7 @@ class ChatWidget(QWidget):
                     #ttsButton {
                         background-color: #E3F2FD;
                         border: 1px solid #BBDEFB;
-                        border-radius: 16px;
+                        border-radius: 18px;
                         padding: 5px;
                     }
                     #ttsButton:hover {
@@ -1146,9 +1277,6 @@ class ChatWidget(QWidget):
                 ai_bubble.setMaximumWidth(550)
                 self.messages_layout.addWidget(ai_bubble)
         
-        # 滚动到底部
-        QTimer.singleShot(100, self.scroll_to_bottom)
-
     def clear_messages(self):
         """清空消息区域"""
         # 删除所有消息气泡
@@ -1160,12 +1288,12 @@ class ChatWidget(QWidget):
         
         # 清空最后一条用户消息记录
         self.last_user_message = None
-    
+
     def start_new_chat(self):
         """开始新的对话"""
         if not self.ai_controller:
             return
-            
+        
         # 获取当前论文ID
         paper_id = None
         if self.paper_controller and self.paper_controller.current_paper:
@@ -1174,7 +1302,7 @@ class ChatWidget(QWidget):
         if not paper_id:
             self.receive_ai_message("请先选择一篇论文")
             return
-            
+        
         # 清空消息区域
         self.clear_messages()
         
@@ -1186,7 +1314,7 @@ class ChatWidget(QWidget):
             
             # 更新历史记录下拉框
             self.update_history_selector(paper_id)
-    
+
     def on_chat_history_updated(self, paper_id, date):
         """处理聊天记录更新事件"""
         # 获取当前论文ID
@@ -1280,7 +1408,7 @@ class ChatWidget(QWidget):
         
         if not paper_id or not self.ai_controller:
             return
-            
+        
         # 备份当前选择的历史记录索引
         current_history_index = self.history_selector.currentIndex()
         
@@ -1294,7 +1422,7 @@ class ChatWidget(QWidget):
         else:
             # 否则加载最新的对话
             self.load_latest_conversation(paper_id)
-            
+        
     def show_refresh_toast(self):
         """显示刷新提示"""
         # 创建一个悬浮提示
@@ -1302,15 +1430,15 @@ class ChatWidget(QWidget):
         toast.setObjectName("refreshToast")
         toast.setStyleSheet("""
             #refreshToast {
-                background-color: rgba(25, 118, 210, 0.8);
-                border-radius: 16px;
+                background-color: rgba(25, 118, 210, 0.9);
+                border-radius: 20px;
                 color: white;
-                padding: 10px 20px;
+                padding: 12px 24px;
             }
         """)
         toast_layout = QHBoxLayout(toast)
         toast_label = QLabel("正在刷新界面...")
-        toast_label.setStyleSheet("color: white; font-weight: bold;")
+        toast_label.setStyleSheet("color: white; font-weight: bold; font-size: 14px;")
         toast_layout.addWidget(toast_label)
         
         # 设置位置和大小

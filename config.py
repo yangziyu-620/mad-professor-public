@@ -12,56 +12,43 @@ from langchain_huggingface import HuggingFaceEmbeddings
 API_CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'api_config.json')
 API_CONFIG_TEMPLATE_PATH = os.path.join(os.path.dirname(__file__), 'api_config_template.json')
 
+# 定义空的API配置模板
 API_CONFIG_TEMPLATE = {
-    "xai-grok:free but training": {
-        "name": "xai-grok",
-        "description": "Grok-3-beta(X.AI)",
-        "base_url": "https://api.x.ai/v1",
-        "api_key": "",
-        "model_id": "grok-3-beta"
+    "providers": {
+        "xAI": {
+            "base_url": "https://api.x.ai/v1",
+            "api_key": "",
+            "models": {
+                "grok-3-beta": {
+                    "id": "xai-grok:free but training",
+                    "name": "xai-grok",
+                    "description": "Grok-3-beta(X.AI)",
+                    "model_id": "grok-3-beta"
+                }
+            }
+        },
+        "OpenRouter": {
+            "base_url": "https://openrouter.ai/api/v1",
+            "api_key": "",
+            "models": {}
+        },
+        "DeepSeek": {
+            "base_url": "https://api.deepseek.com/v1",
+            "api_key": "",
+            "models": {}
+        },
+        "Anthropic": {
+            "base_url": "https://api.anthropic.com/v1",
+            "api_key": "",
+            "models": {}
+        },
+        "OpenAI": {
+            "base_url": "https://api.openai.com/v1",
+            "api_key": "",
+            "models": {}
+        }
     },
-    "openrouter-deepseek:free": {
-        "name": "deepseek-v3-0324:free",
-        "description": "DeepSeek-V3 (0324版本)",
-        "base_url": "https://openrouter.ai/api/v1",
-        "api_key": "",
-        "model_id": "deepseek/deepseek-chat-v3-0324:free"
-    },
-    "deepseek-official:paid": {
-        "name": "deepseek-official",
-        "description": "DeepSeek-V3",
-        "base_url": "https://api.deepseek.com/v1",
-        "api_key": "",
-        "model_id": "deepseek/deepseek-chat"
-    },
-    "claude:paid": {
-        "name": "claude",
-        "description": "Claude 3.5 Sonnet",
-        "base_url": "https://api.anthropic.com/v1",
-        "api_key": "",
-        "model_id": "claude-3-5-sonnet-20240620"
-    },
-    # "qwen": {
-    #     "name": "qwen",
-    #     "description": "通义千问",
-    #     "base_url": "https://dashscope.aliyuncs.com/api/v1",
-    #     "api_key": "sk-c4194e56a5d14be6a20b99c8e99932be",
-    #     "model_id": "qwen-max"
-    # },
-    "openrouter-qwq-32b:free": {
-        "name": "qwq-32b:free",
-        "description": "Qwen/QWQ-32B",
-        "base_url": "https://openrouter.ai/api/v1",
-        "api_key": "",
-        "model_id": "qwen/qwq-32b:free"
-    },
-    "chatgpt-4o-mini:paid": {
-        "name": "chatgpt-4o-mini",
-        "description": "ChatGPT-4o-mini",
-        "base_url": "https://api.openai.com/v1",
-        "api_key": "",
-        "model_id": "gpt-4o-mini"
-    }
+    "current_model": "xai-grok:free but training"
 }
 
 def ensure_api_config():
@@ -76,10 +63,29 @@ def ensure_api_config():
     with open(API_CONFIG_PATH, 'r', encoding='utf-8') as f:
         return json.load(f)
 
-MODEL_PRESETS = ensure_api_config()
+# 加载API配置
+API_CONFIG = ensure_api_config()
 
-# 当前使用的模型配置
-CURRENT_MODEL_PRESET = "xai-grok:free but training"
+# 当前使用的模型配置ID
+CURRENT_MODEL_ID = API_CONFIG.get("current_model", "xai-grok:free but training")
+
+# 为兼容旧代码，构建扁平化模型预设映射
+def build_model_presets():
+    model_presets = {}
+    for provider_name, provider in API_CONFIG.get("providers", {}).items():
+        for model_key, model in provider.get("models", {}).items():
+            model_id = model.get("id", f"{provider_name.lower()}-{model_key}")
+            model_presets[model_id] = {
+                "name": model.get("name", model_key),
+                "description": model.get("description", f"{provider_name} {model_key}"),
+                "base_url": provider.get("base_url", ""),
+                "api_key": provider.get("api_key", ""),
+                "model_id": model.get("model_id", model_key),
+                "provider": provider_name
+            }
+    return model_presets
+
+MODEL_PRESETS = build_model_presets()
 
 TTS_GROUP_ID = "1916768832421110363"
 TTS_API_KEY = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJHcm91cE5hbWUiOiJVTkFGeWFuZyIsIlVzZXJOYW1lIjoiVU5BRnlhbmciLCJBY2NvdW50IjoiIiwiU3ViamVjdElEIjoiMTkxNjc2ODgzMjQyOTQ5OTExMiIsIlBob25lIjoiMTg4MTAzODgxNjUiLCJHcm91cElEIjoiMTkxNjc2ODgzMjQyMTExMDM2MyIsIlBhZ2VOYW1lIjoiIiwiTWFpbCI6IiIsIkNyZWF0ZVRpbWUiOiIyMDI1LTA0LTMwIDIxOjQyOjIyIiwiVG9rZW5UeXBlIjoxLCJpc3MiOiJtaW5pbWF4In0.cp00Y73fU4zB5tge9Y0oeReRgyDLWci6FpV3IYRA1Mbimf_UDmPVWfBWg_M-sCTaoYLu_RYVSeXWtFxnfFMPCFXL4ZdE0e7JEbLNFpWwSp9MpKd1LOFxsFVgSfmEQom2dV-OChWB3mOnTcwswjGmPvvWPkysb1XWHb0EHBvQPtslEa9y4AmmH4ks6QREH1a2w77JZRKWrFmjTTRrMAKQ2lT5eEzw72ea54ZNNFXFyFICFIRBnjWyEI7xwR_D_NcB9uD1blbMS1BeYyZRULyIi5qYgxaz1mmemcdT2l_kR7oVCW4-WtbT22M4Fhe71QrofSC6jWkCh-si0kVhtknDSw"
@@ -126,7 +132,7 @@ class LLMClient:
             
         # 初始化
         self._initialized = True
-        self.current_preset = CURRENT_MODEL_PRESET
+        self.current_preset = CURRENT_MODEL_ID
         self.update_config(preset_name or self.current_preset)
         
     def update_config(self, preset_name):
@@ -137,14 +143,34 @@ class LLMClient:
             self.base_url = preset["base_url"]
             self.model_id = preset["model_id"]
             self.current_preset = preset_name
+            self.provider = preset.get("provider", "")
             
             # 更新OpenAI客户端
             self.client = OpenAI(
                 api_key=self.api_key,
                 base_url=self.base_url
             )
+            
+            # 更新配置文件中的当前模型
+            self.update_current_model_in_config(preset_name)
+            
             return True
         return False
+        
+    def update_current_model_in_config(self, preset_name):
+        """更新配置文件中的当前模型ID"""
+        global API_CONFIG, CURRENT_MODEL_ID
+        
+        # 更新内存中的当前模型ID
+        API_CONFIG["current_model"] = preset_name
+        CURRENT_MODEL_ID = preset_name
+        
+        # 更新配置文件
+        try:
+            with open(API_CONFIG_PATH, 'w', encoding='utf-8') as f:
+                json.dump(API_CONFIG, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            print(f"更新配置文件失败: {str(e)}")
         
     def switch_model(self, preset_name):
         """切换到不同的模型预设"""
@@ -158,10 +184,69 @@ class LLMClient:
         """获取所有可用模型预设"""
         return {name: preset["description"] for name, preset in MODEL_PRESETS.items()}
         
+    def get_available_providers(self):
+        """获取所有可用的提供商"""
+        providers = {}
+        for provider_name in API_CONFIG.get("providers", {}).keys():
+            # 计算该提供商下的模型数量
+            model_count = len(API_CONFIG["providers"][provider_name].get("models", {}))
+            if model_count > 0:
+                providers[provider_name] = f"{provider_name} ({model_count}个模型)"
+        return providers
+        
+    def get_provider_models(self, provider_name):
+        """获取指定提供商下的所有模型"""
+        models = {}
+        if provider_name in API_CONFIG.get("providers", {}):
+            provider = API_CONFIG["providers"][provider_name]
+            for model_key, model in provider.get("models", {}).items():
+                model_id = model.get("id", "")
+                if model_id in MODEL_PRESETS:
+                    models[model_id] = model.get("description", model_key)
+        return models
+        
     def get_current_model(self):
         """获取当前使用的模型信息"""
-        return MODEL_PRESETS.get(self.current_preset, {})
+        model = MODEL_PRESETS.get(self.current_preset, {})
+        return model
         
+    def get_current_provider(self):
+        """获取当前使用的提供商名称"""
+        return self.provider
+        
+    def add_model(self, provider_name, model_key, model_data):
+        """向指定提供商添加新模型
+        
+        Args:
+            provider_name: 提供商名称
+            model_key: 模型唯一键名
+            model_data: 模型数据字典(id, name, description, model_id)
+            
+        Returns:
+            bool: 添加成功返回True，否则返回False
+        """
+        global API_CONFIG, MODEL_PRESETS
+        
+        if provider_name not in API_CONFIG.get("providers", {}):
+            print(f"提供商 '{provider_name}' 不存在")
+            return False
+            
+        # 添加到API配置
+        API_CONFIG["providers"][provider_name]["models"][model_key] = model_data
+        
+        # 保存到文件
+        try:
+            with open(API_CONFIG_PATH, 'w', encoding='utf-8') as f:
+                json.dump(API_CONFIG, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            print(f"保存配置文件失败: {str(e)}")
+            return False
+            
+        # 重新构建模型预设映射
+        MODEL_PRESETS = build_model_presets()
+        
+        return True
+
     def chat(self, messages: List[Dict[str, Any]], temperature=0.5, stream=True) -> str:
         """与LLM交互
         
