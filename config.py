@@ -38,7 +38,7 @@ API_CONFIG_TEMPLATE = {
             "models": {}
         },
         "Anthropic": {
-            "base_url": "https://api.anthropic.com/v1",
+            "base_url": "https://anthropic.com/v1",
             "api_key": "",
             "models": {}
         },
@@ -48,7 +48,11 @@ API_CONFIG_TEMPLATE = {
             "models": {}
         }
     },
-    "current_model": "xai-grok:free but training"
+    "current_model": "xai-grok:free but training",
+    "tts": {
+        "group_id": "",
+        "api_key": ""
+    }
 }
 
 def ensure_api_config():
@@ -87,8 +91,18 @@ def build_model_presets():
 
 MODEL_PRESETS = build_model_presets()
 
-TTS_GROUP_ID = "1916768832421110363"
-TTS_API_KEY = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJHcm91cE5hbWUiOiJVTkFGeWFuZyIsIlVzZXJOYW1lIjoiVU5BRnlhbmciLCJBY2NvdW50IjoiIiwiU3ViamVjdElEIjoiMTkxNjc2ODgzMjQyOTQ5OTExMiIsIlBob25lIjoiMTg4MTAzODgxNjUiLCJHcm91cElEIjoiMTkxNjc2ODgzMjQyMTExMDM2MyIsIlBhZ2VOYW1lIjoiIiwiTWFpbCI6IiIsIkNyZWF0ZVRpbWUiOiIyMDI1LTA0LTMwIDIxOjQyOjIyIiwiVG9rZW5UeXBlIjoxLCJpc3MiOiJtaW5pbWF4In0.cp00Y73fU4zB5tge9Y0oeReRgyDLWci6FpV3IYRA1Mbimf_UDmPVWfBWg_M-sCTaoYLu_RYVSeXWtFxnfFMPCFXL4ZdE0e7JEbLNFpWwSp9MpKd1LOFxsFVgSfmEQom2dV-OChWB3mOnTcwswjGmPvvWPkysb1XWHb0EHBvQPtslEa9y4AmmH4ks6QREH1a2w77JZRKWrFmjTTRrMAKQ2lT5eEzw72ea54ZNNFXFyFICFIRBnjWyEI7xwR_D_NcB9uD1blbMS1BeYyZRULyIi5qYgxaz1mmemcdT2l_kR7oVCW4-WtbT22M4Fhe71QrofSC6jWkCh-si0kVhtknDSw"
+# TTS 配置
+def get_tts_config():
+    """获取TTS配置
+    
+    Returns:
+        tuple: (group_id, api_key)
+    """
+    tts_config = API_CONFIG.get("tts", {})
+    return (
+        tts_config.get("group_id", ""),
+        tts_config.get("api_key", "")
+    )
 
 # 嵌入模型配置
 EMBEDDING_MODEL_NAME = "BAAI/bge-m3"

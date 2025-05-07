@@ -1,0 +1,41 @@
+{
+  "providers": {
+    "xAI": {
+      "base_url": "https://api.x.ai/v1",
+      "api_key": "",
+      "models": {
+        "grok-3-beta": {
+          "id": "xai-grok:free but training",
+          "name": "xai-grok",
+          "description": "Grok-3-beta(X.AI)",
+          "model_id": "grok-3-beta"
+        }
+      }
+    },
+    "OpenRouter": {
+      "base_url": "https://openrouter.ai/api/v1",
+      "api_key": "",
+      "models": {}
+    },
+    "DeepSeek": {
+      "base_url": "https://api.deepseek.com/v1",
+      "api_key": "",
+      "models": {}
+    },
+    "Anthropic": {
+      "base_url": "https://api.anthropic.com/v1",
+      "api_key": "",
+      "models": {}
+    },
+    "OpenAI": {
+      "base_url": "https://api.openai.com/v1",
+      "api_key": "",
+      "models": {}
+    }
+  },
+  "current_model": "xai-grok:free but training",
+  "tts": {
+    "group_id": "",
+    "api_key": ""
+  }
+} 

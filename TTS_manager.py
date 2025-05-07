@@ -3,7 +3,10 @@ import queue
 import pyaudio
 import requests
 from PyQt6.QtCore import QThread, QObject, pyqtSignal, QMutex, QTimer
-from config import TTS_GROUP_ID, TTS_API_KEY
+from config import get_tts_config
+
+# 获取TTS配置
+TTS_GROUP_ID, TTS_API_KEY = get_tts_config()
 
 url = "https://api.minimax.chat/v1/t2a_v2?GroupId=" + TTS_GROUP_ID
 headers = {"Content-Type": "application/json", "Authorization": "Bearer " + TTS_API_KEY}

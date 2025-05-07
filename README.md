@@ -102,12 +102,6 @@
     ```
     按照DeepSeek官方文档配置 https://api-docs.deepseek.com
 
-    ```
-    TTS_GROUP_ID = "YOUR_MINIMAX_GROUP_ID"
-    TTS_API_KEY = "YOUR_MINIMAX_API_KEY"
-    ```
-    按照MiniMax官方文档配置 https://platform.minimaxi.com/document/Voice%20Cloning?key=66719032a427f0c8a570165b
-
    ### 方式二：使用独立的api_config.json文件（推荐）
    
    为了避免API密钥泄露，项目支持从独立的JSON文件读取API配置：
@@ -119,16 +113,29 @@
    2. 在`api_config.json`中填入你的实际API密钥：
       ```json
       {
-        "xai-grok:free but training": {
-          "name": "xai-grok",
-          "description": "Grok-3-beta(X.AI)",
-          "base_url": "https://api.x.ai/v1",
-          "api_key": "你的API密钥",
-          "model_id": "grok-3-beta"
+        "providers": {
+          "xAI": {
+            "base_url": "https://api.x.ai/v1",
+            "api_key": "你的API密钥",
+            "models": {
+              "grok-3-beta": {
+                "id": "xai-grok:free but training",
+                "name": "xai-grok",
+                "description": "Grok-3-beta(X.AI)",
+                "model_id": "grok-3-beta"
+              }
+            }
+          },
+          // ... 其他模型配置 ...
         },
-        // ... 其他模型配置 ...
+        "current_model": "xai-grok:free but training",
+        "tts": {
+          "group_id": "你的MINIMAX_GROUP_ID",
+          "api_key": "你的MINIMAX_API_KEY"
+        }
       }
       ```
+      按照MiniMax官方文档配置TTS部分 https://platform.minimaxi.com/document/Voice%20Cloning?key=66719032a427f0c8a570165b
 
    3. 配置GitHub安全发布：
       - 将 `api_config.json` 添加到 `.gitignore` 文件中
