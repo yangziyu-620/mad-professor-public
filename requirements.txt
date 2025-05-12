@@ -1,6 +1,5 @@
 sentence_transformers
 modelscope
-faiss-cpu
 scikit-learn
 langchain
 langchain_community

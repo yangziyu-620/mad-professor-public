@@ -1,11 +1,38 @@
 import json
 import shutil
 import os
-
+import socket
 import requests
 # 从modelscope和huggingface都导入下载函数
 from modelscope import snapshot_download as ms_snapshot_download
 from huggingface_hub import snapshot_download as hf_snapshot_download
+
+
+def is_china_ip():
+    """
+    检测当前IP是否为中国IP
+    返回: True为中国IP，False为非中国IP
+    """
+    try:
+        # 使用淘宝IP接口
+        response = requests.get('http://ip.taobao.com/outGetIpInfo?ip=myip&accessKey=alibaba-inc', timeout=5)
+        if response.status_code == 200:
+            result = response.json()
+            if result.get('data', {}).get('country_id') == 'CN':
+                return True
+        
+        # 备选检测方法
+        response = requests.get('https://forge.speedtest.cn/api/location/info', timeout=5)
+        if response.status_code == 200:
+            result = response.json()
+            if result.get('country') == '中国':
+                return True
+            
+        return False
+    except Exception as e:
+        print(f"IP检测出错: {e}")
+        # 出错时默认使用HuggingFace
+        return False
 
 
 def download_json(url):
@@ -48,37 +75,39 @@ if __name__ == '__main__':
         # "models/TabRec/StructEqTable/*",
     ]
     
-    # 使用HuggingFace下载模型
-    print(f"正在从HuggingFace下载PDF提取模型到目录: {local_model_dir}")
-    model_dir = hf_snapshot_download(
-        repo_id='opendatalab/PDF-Extract-Kit-1.0',
-        allow_patterns=mineru_patterns,
-        local_dir=local_model_dir,
-        max_workers=4  # 适当增加线程数以提高下载速度
-    )
+    # 检测是否为中国IP
+    is_cn_ip = is_china_ip()
     
-    print(f"正在从HuggingFace下载layoutreader模型到目录: {local_model_dir}")
-    layoutreader_model_dir = hf_snapshot_download(
-        repo_id='hantian/layoutreader',
-        local_dir=local_model_dir,
-        max_workers=4
-    )
-    
-    # ModelScope下载方式（作为备选，默认注释掉）
-    """
-    print(f"正在从ModelScope下载PDF提取模型到目录: {local_model_dir}")
-    model_dir = ms_snapshot_download(
-        'opendatalab/PDF-Extract-Kit-1.0',
-        allow_patterns=mineru_patterns,
-        local_dir=local_model_dir
-    )
-    
-    print(f"正在从ModelScope下载layoutreader模型到目录: {local_model_dir}")
-    layoutreader_model_dir = ms_snapshot_download(
-        'ppaanngggg/layoutreader',
-        local_dir=local_model_dir
-    )
-    """
+    if is_cn_ip:
+        # 使用ModelScope下载模型（中国IP）
+        print(f"检测到中国IP，使用ModelScope下载PDF提取模型到目录: {local_model_dir}")
+        model_dir = ms_snapshot_download(
+            'opendatalab/PDF-Extract-Kit-1.0',
+            allow_patterns=mineru_patterns,
+            local_dir=local_model_dir
+        )
+        
+        print(f"检测到中国IP，使用ModelScope下载layoutreader模型到目录: {local_model_dir}")
+        layoutreader_model_dir = ms_snapshot_download(
+            'ppaanngggg/layoutreader',
+            local_dir=local_model_dir
+        )
+    else:
+        # 使用HuggingFace下载模型（非中国IP）
+        print(f"检测到非中国IP，使用HuggingFace下载PDF提取模型到目录: {local_model_dir}")
+        model_dir = hf_snapshot_download(
+            repo_id='opendatalab/PDF-Extract-Kit-1.0',
+            allow_patterns=mineru_patterns,
+            local_dir=local_model_dir,
+            max_workers=4  # 适当增加线程数以提高下载速度
+        )
+        
+        print(f"检测到非中国IP，使用HuggingFace下载layoutreader模型到目录: {local_model_dir}")
+        layoutreader_model_dir = hf_snapshot_download(
+            repo_id='hantian/layoutreader',
+            local_dir=local_model_dir,
+            max_workers=4
+        )
     
     model_dir = model_dir + '/models'
     print(f'model_dir is: {model_dir}')
