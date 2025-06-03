@@ -110,7 +110,7 @@ class ChatWidget(QWidget):
         # 标题栏布局
         title_layout = QHBoxLayout(title_bar)
         title_layout.setContentsMargins(8, 0, 8, 0)  # 减小左右边距
-        title_layout.setSpacing(8)  # 减小组件间距
+        title_layout.setSpacing(6)  # 减小组件间距，让布局更紧凑
         
         # 设置标题文本和字体
         title_font = QFont("Source Han Sans SC", 11, QFont.Weight.Bold)
@@ -141,112 +141,191 @@ class ChatWidget(QWidget):
         """)
         self.refresh_button.clicked.connect(self.refresh_ui)
         
-        # 添加历史记录下拉菜单 - 减小宽度
-        self.history_selector = QComboBox()
-        self.history_selector.setFixedWidth(110)  # 减小宽度
-        self.history_selector.setFixedHeight(24)  # 减小高度
-        self.history_selector.setStyleSheet("""
-            QComboBox {
-                background-color: rgba(255, 255, 255, 0.25);
-                color: white;
-                border: 1px solid rgba(255, 255, 255, 0.4);
-                border-radius: 4px;
-                padding: 2px 5px;
-                font-size: 12px;
-            }
-            QComboBox::drop-down {
-                subcontrol-origin: padding;
-                subcontrol-position: top right;
-                width: 20px;
-                border-left: 1px solid rgba(255, 255, 255, 0.4);
-            }
-            QComboBox QAbstractItemView {
-                background-color: #2C3E50;
-                color: white;
-                selection-background-color: #34495E;
-            }
-        """)
-        self.history_selector.addItem("选择历史记录")
-        self.history_selector.currentIndexChanged.connect(self.on_history_selected)
-        
-        # 添加新对话按钮 - 统一样式
-        self.new_chat_button = QPushButton("新对话")
-        self.new_chat_button.setFixedWidth(85)
-        self.new_chat_button.setFixedHeight(30)  # 固定高度
-        self.new_chat_button.setStyleSheet("""
+        # 添加历史记录按钮 - 图标化
+        self.history_button = QPushButton()
+        self.history_button.setIcon(QIcon(get_asset_path("history_icon.svg")))
+        self.history_button.setToolTip("查看历史对话")
+        self.history_button.setFixedSize(30, 30)
+        self.history_button.setIconSize(QSize(16, 16))
+        self.history_button.setStyleSheet("""
             QPushButton {
-                background-color: rgba(255, 255, 255, 0.25);
-                color: white;
-                border: 1px solid rgba(255, 255, 255, 0.4);
-                border-radius: 4px;
-                padding: 2px 5px;
-                font-size: 12px;
+                background-color: rgba(255, 255, 255, 0.3);
+                border: 1px solid rgba(255, 255, 255, 0.5);
+                border-radius: 15px;
+                padding: 3px;
             }
             QPushButton:hover {
-                background-color: rgba(255, 255, 255, 0.35);
+                background-color: rgba(255, 255, 255, 0.5);
+            }
+            QPushButton:pressed {
+                background-color: rgba(255, 255, 255, 0.6);
+            }
+        """)
+        
+        # 创建历史记录菜单
+        self.history_menu = QMenu(self)
+        self.history_menu.setStyleSheet("""
+            QMenu {
+                background-color: #34495E;
+                color: white;
+                border: 1px solid #5D6D7E;
+                border-radius: 8px;
+                padding: 6px;
+                font-size: 12px;
+                min-width: 180px;
+            }
+            QMenu::item {
+                padding: 8px 12px;
+                border-radius: 6px;
+                margin: 2px;
+                background-color: transparent;
+            }
+            QMenu::item:hover {
+                background-color: #5D6D7E;
+            }
+            QMenu::item:selected {
+                background-color: #3498DB;
+            }
+            QMenu::item:disabled {
+                color: #BDC3C7;
+                background-color: transparent;
+            }
+            QMenu::separator {
+                height: 1px;
+                background-color: #5D6D7E;
+                margin: 4px 8px;
+            }
+        """)
+        self.history_button.setMenu(self.history_menu)
+        
+        # 添加新建对话按钮 - 改为"+"图标
+        self.new_chat_button = QPushButton()
+        self.new_chat_button.setIcon(QIcon(get_asset_path("plus_icon.svg")))
+        self.new_chat_button.setToolTip("新建对话")
+        self.new_chat_button.setFixedSize(30, 30)
+        self.new_chat_button.setIconSize(QSize(16, 16))
+        self.new_chat_button.setStyleSheet("""
+            QPushButton {
+                background-color: rgba(255, 255, 255, 0.3);
+                border: 1px solid rgba(255, 255, 255, 0.5);
+                border-radius: 15px;
+                padding: 3px;
+            }
+            QPushButton:hover {
+                background-color: rgba(255, 255, 255, 0.5);
+            }
+            QPushButton:pressed {
+                background-color: rgba(255, 255, 255, 0.6);
             }
         """)
         self.new_chat_button.clicked.connect(self.start_new_chat)
         
-        # 添加API提供商选择下拉框 - 统一风格
-        self.provider_selector = QComboBox()
-        self.provider_selector.setFixedWidth(140)  # 调整宽度
-        self.provider_selector.setFixedHeight(30)  # 固定高度
-        self.provider_selector.setStyleSheet("""
-            QComboBox {
-                background-color: rgba(255, 255, 255, 0.25);
-                color: white;
-                border: 1px solid rgba(255, 255, 255, 0.4);
-                border-radius: 4px;
-                padding: 2px 5px;
-                font-size: 12px;
-            }
-            QComboBox::drop-down {
-                subcontrol-origin: padding;
-                subcontrol-position: top right;
-                width: 20px;
-                border-left: 1px solid rgba(255, 255, 255, 0.4);
-            }
-            QComboBox QAbstractItemView {
-                background-color: #2C3E50;
-                color: white;
-                selection-background-color: #34495E;
+        # 添加简化的模型选择器 - 现代化设计
+        # 创建模型选择器容器
+        model_container = QWidget()
+        model_layout = QHBoxLayout(model_container)
+        model_layout.setContentsMargins(0, 0, 0, 0)
+        model_layout.setSpacing(4)
+        
+        # 添加模型图标标签
+        model_icon_label = QLabel()
+        model_icon = QIcon(get_asset_path("model_icon.svg"))
+        model_icon_label.setPixmap(model_icon.pixmap(16, 16))
+        model_icon_label.setToolTip("AI模型")
+        model_icon_label.setStyleSheet("""
+            QLabel {
+                background: none;
+                border: none;
+                padding: 0px;
+                margin: 0px;
             }
         """)
         
-        # 添加模型选择下拉框 - 统一风格
+        # 模型选择器
         self.model_selector = QComboBox()
-        self.model_selector.setFixedWidth(160)  # 增加宽度以显示更多内容
-        self.model_selector.setFixedHeight(30)  # 固定高度
+        self.model_selector.setFixedWidth(180)  # 调整宽度，因为现在有了图标
+        self.model_selector.setFixedHeight(32)  # 稍微增加高度
+        self.model_selector.setToolTip("选择AI模型")  # 添加工具提示
         self.model_selector.setStyleSheet("""
             QComboBox {
-                background-color: rgba(255, 255, 255, 0.25);
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 rgba(255, 255, 255, 0.3), 
+                    stop:1 rgba(255, 255, 255, 0.2));
                 color: white;
-                border: 1px solid rgba(255, 255, 255, 0.4);
-                border-radius: 4px;
-                padding: 2px 5px;
+                border: 1px solid rgba(255, 255, 255, 0.5);
+                border-radius: 8px;
+                padding: 4px 8px 4px 12px;
                 font-size: 12px;
+                font-weight: 500;
+                selection-background-color: rgba(255, 255, 255, 0.2);
+            }
+            QComboBox:hover {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 rgba(255, 255, 255, 0.4), 
+                    stop:1 rgba(255, 255, 255, 0.3));
+                border: 1px solid rgba(255, 255, 255, 0.7);
+            }
+            QComboBox:focus {
+                border: 2px solid rgba(255, 255, 255, 0.8);
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 rgba(255, 255, 255, 0.4), 
+                    stop:1 rgba(255, 255, 255, 0.3));
             }
             QComboBox::drop-down {
                 subcontrol-origin: padding;
                 subcontrol-position: top right;
-                width: 20px;
-                border-left: 1px solid rgba(255, 255, 255, 0.4);
+                width: 24px;
+                border-left: 1px solid rgba(255, 255, 255, 0.3);
+                border-top-right-radius: 7px;
+                border-bottom-right-radius: 7px;
+                background: rgba(255, 255, 255, 0.1);
+            }
+            QComboBox::drop-down:hover {
+                background: rgba(255, 255, 255, 0.2);
+            }
+            QComboBox::down-arrow {
+                image: none;
+                border-left: 4px solid transparent;
+                border-right: 4px solid transparent;
+                border-top: 5px solid white;
+                margin-right: 8px;
             }
             QComboBox QAbstractItemView {
-                background-color: #2C3E50;
+                background-color: #34495E;
                 color: white;
-                selection-background-color: #34495E;
+                selection-background-color: #5D6D7E;
+                selection-color: white;
+                border: 1px solid #5D6D7E;
+                border-radius: 6px;
+                padding: 4px;
+                outline: none;
+            }
+            QComboBox QAbstractItemView::item {
+                height: 28px;
+                padding: 4px 8px;
+                border-radius: 4px;
+                margin: 1px;
+            }
+            QComboBox QAbstractItemView::item:hover {
+                background-color: #5D6D7E;
+                color: white;
+            }
+            QComboBox QAbstractItemView::item:selected {
+                background-color: #3498DB;
+                color: white;
             }
         """)
+        
+        # 将图标和选择器添加到容器
+        model_layout.addWidget(model_icon_label)
+        model_layout.addWidget(self.model_selector)
         
         title_layout.addWidget(title_label)
         title_layout.addWidget(self.refresh_button)
         title_layout.addStretch(1)
-        title_layout.addWidget(self.history_selector)
+        title_layout.addWidget(self.history_button)
         title_layout.addWidget(self.new_chat_button)
-        title_layout.addWidget(self.provider_selector)
-        title_layout.addWidget(self.model_selector)
+        title_layout.addWidget(model_container)
         
         return title_bar
     
@@ -534,11 +613,12 @@ class ChatWidget(QWidget):
             QPushButton: 配置好的TTS开关按钮
         """
         tts_button = QPushButton()
-        tts_button.setIcon(QIcon(get_asset_path("sound_on.svg")))
+        # 默认使用静音图标，因为TTS默认禁用
+        tts_button.setIcon(QIcon(get_asset_path("sound_off.svg")))
         tts_button.setObjectName("ttsButton")
         tts_button.setFixedSize(36, 36)  # 增大按钮
         tts_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        tts_button.setToolTip("点击开启/关闭语音输出")
+        tts_button.setToolTip("点击开启语音输出")  # 默认提示开启
         tts_button.setIconSize(QSize(18, 18))  # 增大图标
         tts_button.setStyleSheet("""
             #ttsButton {
@@ -955,125 +1035,169 @@ class ChatWidget(QWidget):
             super().closeEvent(event)
 
     def init_model_selector(self):
-        """初始化API提供商选择器和模型选择器"""
-        if not hasattr(self, 'provider_selector') or not hasattr(self, 'model_selector') or not self.ai_controller:
+        """初始化模型选择器 - 简化版本，直接显示所有可用模型"""
+        if not hasattr(self, 'model_selector') or not self.ai_controller:
             return
         
         # 清空之前的项目
-        self.provider_selector.clear()
         self.model_selector.clear()
         
-        # 获取所有提供商
-        providers = self.ai_controller.get_available_providers()
+        # 获取当前模型ID
+        current_model_id = self.ai_controller.get_current_model_id()
         
-        # 获取当前模型和提供商
-        current_model = self.ai_controller.get_current_model()
-        current_provider = self.ai_controller.get_current_provider()
+        # 获取所有可用模型（已经包含提供商信息）
+        all_models = self.ai_controller.get_available_models()
         
-        # 填充提供商选择器
-        for provider_name, provider_display in providers.items():
-            self.provider_selector.addItem(provider_display, provider_name)
+        # 添加模型到选择器，按提供商分组显示
+        current_index = -1
+        index = 0
         
-        # 连接提供商选择器信号
-        self.provider_selector.currentIndexChanged.connect(self.on_provider_changed)
+        # 按提供商分组模型
+        providers_models = {}
+        for model_id, description in all_models.items():
+            # 提取提供商名称（假设模型ID格式为 "provider:model"）
+            provider = model_id.split(':')[0] if ':' in model_id else "其他"
+            if provider not in providers_models:
+                providers_models[provider] = []
+            providers_models[provider].append((model_id, description))
         
-        # 设置当前提供商
-        if current_provider:
-            # 查找当前提供商的索引
-            for i in range(self.provider_selector.count()):
-                if self.provider_selector.itemData(i) == current_provider:
-                    self.provider_selector.setCurrentIndex(i)
-                    break
-        else:
-            # 如果找不到当前提供商，选择第一个
-            if self.provider_selector.count() > 0:
-                self.on_provider_changed(0)
-
-    def on_provider_changed(self, index):
-        """处理提供商选择变化"""
-        if index < 0 or not self.ai_controller:
-            return
+        # 按提供商顺序添加模型
+        for provider_name in sorted(providers_models.keys()):
+            for model_id, description in providers_models[provider_name]:
+                # 创建更简洁友好的显示名称
+                display_name = self.create_friendly_model_name(provider_name, description)
+                
+                self.model_selector.addItem(display_name, model_id)
+                
+                # 记录当前模型的索引
+                if model_id == current_model_id:
+                    current_index = index
+                index += 1
         
-        # 获取选择的提供商名称
-        provider_name = self.provider_selector.currentData()
+        # 设置当前选中的模型
+        if current_index >= 0:
+            self.model_selector.setCurrentIndex(current_index)
+            # 设置工具提示显示当前模型
+            current_display_name = self.model_selector.currentText()
+            self.model_selector.setToolTip(f"当前模型: {current_display_name}")
+        elif self.model_selector.count() > 0:
+            self.model_selector.setCurrentIndex(0)
+            # 如果没有找到当前模型，切换到第一个
+            self.on_model_changed(0)
+            # 设置工具提示
+            first_display_name = self.model_selector.currentText()
+            self.model_selector.setToolTip(f"当前模型: {first_display_name}")
         
-        # 清空模型选择器
-        self.model_selector.clear()
-        
-        # 获取当前模型
-        current_model = self.ai_controller.get_current_model()
-        current_name = current_model.get("name", "")
-        current_id = self.ai_controller.get_current_model_id()
-        
-        # 获取该提供商下的所有模型
-        provider_models = self.ai_controller.get_provider_models(provider_name)
-        
-        # 添加该提供商下的模型到模型选择器
-        for model_id, description in provider_models.items():
-            # 提取更简洁的模型名称显示
-            display_name = self.get_simplified_model_name(description)
-            self.model_selector.addItem(display_name, model_id)
-            
-            # 如果是当前模型，设置为当前选择项
-            if model_id == current_id:
-                self.model_selector.setCurrentText(display_name)
-        
-        # 连接模型选择器信号（如果尚未连接）
+        # 连接信号
         try:
-            self.model_selector.currentIndexChanged.disconnect(self.on_model_changed)
+            self.model_selector.currentIndexChanged.disconnect()
         except:
             pass
         self.model_selector.currentIndexChanged.connect(self.on_model_changed)
-        
-        # 如果当前没有选中的模型，选择第一个
-        if self.model_selector.currentIndex() < 0 and self.model_selector.count() > 0:
-            self.model_selector.setCurrentIndex(0)
-            # 手动调用模型变更方法以确保切换到第一个模型
-            self.on_model_changed(0)
 
-    def get_simplified_model_name(self, full_description):
-        """从完整描述中提取简洁的模型名称"""
-        # 针对不同提供商的特殊处理
-        if "DeepSeek" in full_description:
-            if "0324" in full_description:
-                return "DeepSeek-V3 0324"
-            return "DeepSeek-V3"
-        elif "Claude" in full_description:
-            if "Sonnet" in full_description:
-                return "Claude 3.5 Sonnet"
-            return full_description
-        elif "ChatGPT" in full_description or "GPT-" in full_description:
-            if "mini" in full_description:
-                return "GPT-4o-mini"
-            return full_description
-        elif "Grok" in full_description:
-            return "Grok-3-beta"
-        elif "QWQ" in full_description or "Qwen" in full_description:
-            return "QWQ-32B"
+    def create_friendly_model_name(self, provider_name, description):
+        """创建用户友好的模型显示名称"""
+        # 根据提供商和描述创建简洁的显示名称
+        provider_configs = {
+            'deepseek': {'display': '🧠 DeepSeek', 'emoji': '🤖'},
+            'openai': {'display': '🚀 OpenAI', 'emoji': '💬'},
+            'anthropic': {'display': '🎭 Anthropic', 'emoji': '🧐'},
+            'xai': {'display': '✨ xAI', 'emoji': '⚡'},
+            'zhipu': {'display': '🔮 智谱', 'emoji': '🌟'}
+        }
+        
+        config = provider_configs.get(provider_name.lower(), 
+                                    {'display': provider_name.capitalize(), 'emoji': '🤖'})
+        provider_display = config['display']
+        emoji = config['emoji']
+        
+        # 提取模型的简短名称
+        if "DeepSeek" in description:
+            if "0324" in description:
+                model_name = "V3-0324"
+            else:
+                model_name = "V3"
+        elif "Claude" in description:
+            if "Sonnet" in description:
+                model_name = "3.5 Sonnet"
+            elif "Haiku" in description:
+                model_name = "3.5 Haiku"
+            else:
+                model_name = "3.5"
+        elif "GPT" in description:
+            if "4.1-mini" in description:
+                model_name = "4.1-mini"
+            elif "4.1-nano" in description:
+                model_name = "4.1-nano"
+            elif "4o-mini" in description:
+                model_name = "4o-mini"
+            elif "4o" in description:
+                model_name = "4o"
+            else:
+                model_name = "4"
+        elif "Grok" in description:
+            model_name = "3-beta"
+        elif "QWQ" in description:
+            model_name = "QWQ-32B"
         else:
-            return full_description
+            # 尝试从描述中提取版本信息
+            import re
+            version_match = re.search(r'(\d+\.?\d*[a-zA-Z\-]*)', description)
+            model_name = version_match.group(1) if version_match else "模型"
+        
+        return f"{provider_display} {model_name}"
 
     def on_model_changed(self, index):
         """处理模型选择变化"""
         if index < 0 or not self.ai_controller:
             return
             
-        # 获取选择的模型名
-        model_name = self.model_selector.currentData()
+        # 获取选择的模型名和显示名
+        model_id = self.model_selector.currentData()
+        display_name = self.model_selector.currentText()
+        
+        if not model_id:
+            return
+        
+        # 检查是否已经是当前模型
+        current_model_id = self.ai_controller.get_current_model_id()
+        if model_id == current_model_id:
+            return  # 已经是当前模型，无需切换
+        
+        # 临时禁用选择器，防止重复操作
+        self.model_selector.setEnabled(False)
+        
+        # 更新工具提示显示切换状态
+        self.model_selector.setToolTip(f"正在切换到 {display_name}...")
         
         # 切换前提示用户
         if self.ai_controller.is_busy():
             # 如果正在生成，提示用户等待完成
-            self.receive_ai_message("正在切换到新模型，请稍候...")
+            self.receive_ai_message("⏳ 正在切换模型，请稍候...")
+        else:
+            self.receive_ai_message(f"🔄 正在切换到 {display_name}...")
             
         # 切换模型
-        success = self.ai_controller.switch_model(model_name)
+        success = self.ai_controller.switch_model(model_id)
+        
+        # 重新启用选择器
+        self.model_selector.setEnabled(True)
         
         if success:
-            model_info = self.ai_controller.get_current_model()
-            self.receive_ai_message(f"已切换至 {model_info.get('description', model_name)} 模型")
+            # 切换成功，更新工具提示
+            self.model_selector.setToolTip(f"当前模型: {display_name}")
+            self.receive_ai_message(f"✅ 已成功切换到 {display_name}")
         else:
-            self.receive_ai_message("切换模型失败")
+            # 切换失败，恢复原选择
+            self.model_selector.setToolTip("选择AI模型")
+            self.receive_ai_message("❌ 模型切换失败，请重试")
+            
+            # 恢复到之前的模型选择
+            current_model_id = self.ai_controller.get_current_model_id()
+            for i in range(self.model_selector.count()):
+                if self.model_selector.itemData(i) == current_model_id:
+                    self.model_selector.setCurrentIndex(i)
+                    break
 
     def toggle_tts(self):
         """切换TTS状态"""
@@ -1177,30 +1301,31 @@ class ChatWidget(QWidget):
         if not self.ai_controller:
             return
             
-        # 清空当前选项
-        self.history_selector.clear()
-        self.history_selector.addItem("选择历史记录")
+        # 清空当前菜单
+        self.history_menu.clear()
         
         # 获取指定论文的对话日期
         dates = self.ai_controller.get_conversation_dates(paper_id)
         
-        # 添加日期到下拉框
-        for date in dates:
-            self.history_selector.addItem(date)
+        # 添加标题
+        title_action = self.history_menu.addAction("📝 历史对话")
+        title_action.setEnabled(False)  # 禁用标题项
         
-        # 禁用信号处理以防止触发事件
-        self.history_selector.blockSignals(True)
-        self.history_selector.setCurrentIndex(0)
-        self.history_selector.blockSignals(False)
-    
-    def on_history_selected(self, index):
-        """处理历史记录选择事件"""
-        if index <= 0 or not self.ai_controller:
-            return
+        if not dates:
+            # 如果没有历史记录
+            no_history_action = self.history_menu.addAction("暂无历史记录")
+            no_history_action.setEnabled(False)
+        else:
+            # 添加分隔线
+            self.history_menu.addSeparator()
             
-        # 获取选择的日期
-        date = self.history_selector.itemText(index)
-        
+            # 添加日期到菜单
+            for date in dates:
+                action = self.history_menu.addAction(f"🕒 {date}")
+                action.triggered.connect(lambda checked, d=date: self.load_history_by_date(d))
+    
+    def load_history_by_date(self, date):
+        """根据日期加载历史记录"""
         # 获取当前论文ID
         paper_id = None
         if self.paper_controller and self.paper_controller.current_paper:
@@ -1212,6 +1337,11 @@ class ChatWidget(QWidget):
         # 加载对话历史
         self.load_conversation(paper_id, date)
     
+    def on_history_selected(self, index):
+        """处理历史记录选择事件 - 保留用于兼容性"""
+        # 这个方法现在由菜单action处理，保留空实现以避免错误
+        pass
+
     def load_conversation(self, paper_id, date=None):
         """加载指定论文和日期的对话历史"""
         if not self.ai_controller:
@@ -1409,20 +1539,15 @@ class ChatWidget(QWidget):
         if not paper_id or not self.ai_controller:
             return
         
-        # 备份当前选择的历史记录索引
-        current_history_index = self.history_selector.currentIndex()
-        
         # 清空消息区域
         self.clear_messages()
         
-        # 如果已经选择了特定的历史记录，重新加载该记录
-        if current_history_index > 0:
-            date = self.history_selector.itemText(current_history_index)
-            self.load_conversation(paper_id, date)
-        else:
-            # 否则加载最新的对话
-            self.load_latest_conversation(paper_id)
+        # 重新更新历史记录菜单
+        self.update_history_selector(paper_id)
         
+        # 加载最新的对话
+        self.load_latest_conversation(paper_id)
+    
     def show_refresh_toast(self):
         """显示刷新提示"""
         # 创建一个悬浮提示

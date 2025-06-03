@@ -47,6 +47,7 @@ class AIManager(QObject):
         
         # 缓存待显示的句子
         self.pending_sentences = {}
+        self.max_pending_sentences = 50  # 限制待处理句子数量
         
         # 语音输入对象将在init_voice_recognition中初始化
         self.voice_input = None
@@ -62,7 +63,7 @@ class AIManager(QObject):
         self.accumulated_response = ""
         
         # TTS功能开关
-        self.tts_enabled = True
+        self.tts_enabled = False
         
         # 初始化聊天记录管理器
         self.chat_history_manager = ChatHistoryManager()
@@ -70,6 +71,9 @@ class AIManager(QObject):
         # 当前活动的论文ID和日期
         self.current_paper_id = None
         self.current_conversation_date = None
+        
+        # 对话历史长度限制
+        self.max_conversation_history = 100  # 最多保留100条对话记录
     
     def set_data_manager(self, data_manager):
         """设置数据管理器引用"""
@@ -253,6 +257,14 @@ class AIManager(QObject):
         # 如果没有当前请求ID，可能是已经被取消，忽略这个句子
         if not self.current_request_id:
             return
+        
+        # 管理pending_sentences缓存大小
+        if len(self.pending_sentences) >= self.max_pending_sentences:
+            # 清理最旧的句子
+            oldest_keys = list(self.pending_sentences.keys())[:10]  # 清理最旧的10个
+            for key in oldest_keys:
+                del self.pending_sentences[key]
+            print(f"[INFO] 清理了{len(oldest_keys)}个待处理句子缓存")
         
         # 缓存句子，并关联请求ID和情绪
         sentence_id = id(sentence)  # 使用对象id作为唯一标识
@@ -589,6 +601,15 @@ class AIManager(QObject):
             # 如果不是重复消息，添加到历史
             if not is_duplicate:
                 self.ai_chat.conversation_history.append(message)
+                
+                # 检查并限制对话历史长度
+                if len(self.ai_chat.conversation_history) > self.max_conversation_history:
+                    # 保留最近的对话记录，但保留一些早期的上下文
+                    early_context = self.ai_chat.conversation_history[:20]  # 保留前20条作为上下文
+                    recent_messages = self.ai_chat.conversation_history[-(self.max_conversation_history-20):]  # 保留最近的消息
+                    
+                    self.ai_chat.conversation_history = early_context + recent_messages
+                    print(f"[INFO] 对话历史过长，已压缩至 {len(self.ai_chat.conversation_history)} 条记录")
             else:
                 print(f"跳过重复消息: {role}")
     

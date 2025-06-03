@@ -2,9 +2,11 @@ import json
 import os
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
+from collections import OrderedDict
 from langchain_community.vectorstores.faiss import FAISS
 from config import EmbeddingModel
 from PyQt6.QtCore import QObject, pyqtSignal, QThread
+import gc
 
 # 导入rag_processor用于重新处理
 from processor.rag_processor import RagProcessor
@@ -49,7 +51,7 @@ class VectorLoadingThread(QThread):
             self.loading_finished.emit(paper_vector_paths)
             
         except Exception as e:
-            print(f"[ERROR] 预加载论文索引失败: {str(e)}")
+            print(f"[ERROR] 预加载向量库路径失败: {str(e)}")
             self.loading_finished.emit({})
 
 
@@ -58,19 +60,25 @@ class RagRetriever(QObject):
     
     loading_complete = pyqtSignal(bool)  # 加载完成信号
     
-    def __init__(self, base_path=None):
+    def __init__(self, base_path=None, max_cache_size=3):
         """
         初始化RAG检索器并预加载所有论文的向量库路径
         
         Args:
             base_path: 基础路径，如果提供则自动预加载所有论文
+            max_cache_size: 最大缓存向量库数量，默认为3
         """
         super().__init__()
-        self.vector_stores = {}  # 缓存加载过的向量库: {paper_id: vector_store}
+        # 使用OrderedDict实现LRU缓存
+        self.vector_stores = OrderedDict()  # 缓存加载过的向量库: {paper_id: vector_store}
         self.paper_vector_paths = {}  # 论文ID到向量库路径的映射: {paper_id: vector_path}
         self.base_path = base_path
         self.loading_thread = None
-        self.rag_trees = {}  # 缓存加载过的rag_tree: {paper_id: rag_tree}
+        self.rag_trees = OrderedDict()  # 缓存加载过的rag_tree: {paper_id: rag_tree}
+        
+        # 缓存管理配置
+        self.max_cache_size = max_cache_size
+        self.max_rag_tree_cache = max_cache_size * 2  # RAG树缓存可以稍多一些，因为占用内存较小
         
         # 如果提供了base_path，则预加载所有论文的索引
         if base_path:
@@ -97,6 +105,89 @@ class RagRetriever(QObject):
         print(f"[INFO] 完成论文向量库索引加载，共加载 {len(paper_vector_paths)} 个论文索引")
         self.loading_complete.emit(len(paper_vector_paths) > 0)
 
+    def _manage_vector_cache(self, paper_id):
+        """
+        管理向量库缓存，实现LRU策略
+        
+        Args:
+            paper_id: 当前要访问的论文ID
+        """
+        # 如果缓存超过限制，移除最旧的
+        while len(self.vector_stores) >= self.max_cache_size:
+            oldest_id, oldest_store = self.vector_stores.popitem(last=False)
+            print(f"[INFO] 清理向量库缓存: {oldest_id}")
+            
+            # 尝试释放内存
+            try:
+                del oldest_store
+                gc.collect()  # 强制垃圾回收
+                
+                # 如果是GPU模式，尝试清理CUDA缓存
+                try:
+                    import torch
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                except:
+                    pass
+            except Exception as e:
+                print(f"[WARNING] 清理向量库缓存时出错: {str(e)}")
+
+    def _manage_rag_tree_cache(self, paper_id):
+        """
+        管理RAG树缓存，实现LRU策略
+        
+        Args:
+            paper_id: 当前要访问的论文ID
+        """
+        # 如果缓存超过限制，移除最旧的
+        while len(self.rag_trees) >= self.max_rag_tree_cache:
+            oldest_id, oldest_tree = self.rag_trees.popitem(last=False)
+            print(f"[INFO] 清理RAG树缓存: {oldest_id}")
+            del oldest_tree
+
+    def clear_cache(self):
+        """
+        手动清理所有缓存
+        """
+        print("[INFO] 手动清理所有缓存")
+        
+        # 清理向量库缓存
+        for paper_id, vector_store in self.vector_stores.items():
+            try:
+                del vector_store
+            except:
+                pass
+        self.vector_stores.clear()
+        
+        # 清理RAG树缓存
+        self.rag_trees.clear()
+        
+        # 强制垃圾回收
+        gc.collect()
+        
+        # 清理CUDA缓存
+        try:
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                print("[INFO] 已清理CUDA缓存")
+        except:
+            pass
+
+    def get_cache_info(self):
+        """
+        获取缓存信息
+        
+        Returns:
+            dict: 缓存信息
+        """
+        return {
+            "vector_stores_cached": len(self.vector_stores),
+            "rag_trees_cached": len(self.rag_trees),
+            "max_cache_size": self.max_cache_size,
+            "cached_papers": list(self.vector_stores.keys())
+        }
+
     def add_paper(self, paper_id: str, vector_store_path: str) -> bool:
         """
         添加新论文的向量库路径并尝试加载
@@ -113,11 +204,14 @@ class RagRetriever(QObject):
             self.paper_vector_paths[paper_id] = vector_store_path
             print(f"[INFO] 添加新论文向量库: {paper_id} -> {vector_store_path}")
             
+            # 管理缓存大小
+            self._manage_vector_cache(paper_id)
+            
             # 尝试加载向量库
             vector_store = self.load_vector_store(vector_store_path)
             if vector_store:
                 self.vector_stores[paper_id] = vector_store
-                print(f"[INFO] 成功加载新论文 {paper_id} 的向量库")
+                print(f"[INFO] 成功加载新论文 {paper_id} 的向量库 (缓存数量: {len(self.vector_stores)}/{self.max_cache_size})")
                 return True
             else:
                 # 尝试重新创建向量库
@@ -172,7 +266,10 @@ class RagRetriever(QObject):
             except RuntimeError as e:
                 # 检查是否是CUDA内存不足错误
                 if "CUDA out of memory" in str(e):
-                    print(f"[WARNING] GPU内存不足，正在切换到CPU模式: {str(e)}")
+                    print(f"[WARNING] GPU内存不足，清理缓存后切换到CPU模式: {str(e)}")
+                    
+                    # 先清理缓存释放内存
+                    self.clear_cache()
                     
                     # 重置嵌入模型实例以强制切换到CPU
                     EmbeddingModel.reset_instance()
@@ -312,7 +409,12 @@ class RagRetriever(QObject):
             Dict: 论文的rag_tree结构
         """
         if paper_id in self.rag_trees:
+            # 移动到最后（最近使用）
+            self.rag_trees.move_to_end(paper_id)
             return self.rag_trees[paper_id]
+        
+        # 管理RAG树缓存大小
+        self._manage_rag_tree_cache(paper_id)
             
         try:
             # 构建rag_tree路径
@@ -376,14 +478,20 @@ class RagRetriever(QObject):
         
         # 检查是否已加载
         if paper_id in self.vector_stores:
+            # 移动到最后（最近使用）
+            self.vector_stores.move_to_end(paper_id)
             vector_store = self.vector_stores[paper_id]
         else:
+            # 管理缓存大小
+            self._manage_vector_cache(paper_id)
+            
             # 尝试加载
             if paper_id in self.paper_vector_paths:
                 vector_store_path = self.paper_vector_paths[paper_id]
                 vector_store = self.load_vector_store(vector_store_path)
                 if vector_store:
                     self.vector_stores[paper_id] = vector_store
+                    print(f"[INFO] 成功缓存论文 {paper_id} 的向量库 (缓存数量: {len(self.vector_stores)}/{self.max_cache_size})")
                 else:
                     # 向量库不存在，尝试重新创建
                     print(f"[WARNING] 向量库不存在，尝试重新创建: {paper_id}")
@@ -471,14 +579,20 @@ class RagRetriever(QObject):
         
         # 检查是否已加载
         if paper_id in self.vector_stores:
+            # 移动到最后（最近使用）
+            self.vector_stores.move_to_end(paper_id)
             vector_store = self.vector_stores[paper_id]
         else:
+            # 管理缓存大小
+            self._manage_vector_cache(paper_id)
+            
             # 尝试加载
             if paper_id in self.paper_vector_paths:
                 vector_store_path = self.paper_vector_paths[paper_id]
                 vector_store = self.load_vector_store(vector_store_path)
                 if vector_store:
                     self.vector_stores[paper_id] = vector_store
+                    print(f"[INFO] 成功缓存论文 {paper_id} 的向量库 (缓存数量: {len(self.vector_stores)}/{self.max_cache_size})")
                 else:
                     # 向量库不存在，尝试重新创建
                     print(f"[WARNING] 向量库不存在，尝试重新创建: {paper_id}")
@@ -600,7 +714,8 @@ class RagRetriever(QObject):
             # 按照路径顺序排序
             sorted_paths = sorted(retrieved_sections.keys())
             
-            # 构建最终结果字符串
+            # 构建 最终结果字符串
+            #
             result_parts = ["以下是论文中与您问题最相关的内容:"]
 
             for path in sorted_paths:

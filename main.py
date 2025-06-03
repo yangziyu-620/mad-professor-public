@@ -4,6 +4,7 @@ from PyQt6.QtGui import QFontDatabase, QFont, QPalette, QColor, QIcon, QPixmap, 
 from PyQt6.QtCore import Qt, QRect, QPoint
 from paths import get_font_path
 from AI_professor_UI import AIProfessorUI
+from utils.memory_monitor import start_global_monitoring, get_quick_memory_info
 
 def generate_app_icon():
     """生成应用程序图标"""
@@ -107,6 +108,20 @@ if __name__ == '__main__':
     palette.setColor(QPalette.ColorRole.HighlightedText, QColor(255, 255, 255))
     
     app.setPalette(palette)
+    
+    # 启动内存监控
+    memory_monitor = start_global_monitoring()
+    print(f"[INFO] 内存监控已启动: {get_quick_memory_info()}")
+    
+    # 连接内存警告信号
+    def on_memory_warning(message, memory_gb):
+        print(f"[WARNING] {message}")
+    
+    def on_memory_critical(message, memory_gb):
+        print(f"[CRITICAL] {message}")
+    
+    memory_monitor.memory_warning.connect(on_memory_warning)
+    memory_monitor.memory_critical.connect(on_memory_critical)
     
     window = AIProfessorUI()
     window.show()

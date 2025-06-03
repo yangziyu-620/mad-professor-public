@@ -489,8 +489,10 @@ class AIProfessorChat:
         
             final_query = f"{final_query}\n\n{context_type}:\n{context_info}"
         
-        final_query += f"{final_query}\n\n输出回复的话："
+        # 构建最终的用户消息内容
+        user_message_content = f"{final_query}\n\n请严格遵照以上所有指示（包括你的角色设定、回答指导原则、情绪、用户问题和参考信息），深入分析并直接输出你作为雷电将军御姐教授的回复："
+        
         # 添加最终用户查询
-        messages.append({"role": "user", "content": final_query})
+        messages.append({"role": "user", "content": user_message_content})
         
         return messages

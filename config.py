@@ -431,12 +431,29 @@ class EmbeddingModel:
             
             # 清理旧实例
             try:
+                # 尝试清理模型相关的内存
+                if hasattr(cls._instance, 'client'):
+                    del cls._instance.client
+                if hasattr(cls._instance, 'model'):
+                    del cls._instance.model
+                    
+                # 显式删除实例
+                del cls._instance
+                
+                # 强制垃圾回收
+                import gc
+                gc.collect()
+                
                 # 尝试清理CUDA内存
                 import torch
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
+                    # 确保所有CUDA操作完成
+                    torch.cuda.synchronize()
+                    logging.info("已清理CUDA缓存")
+                    
             except Exception as e:
-                logging.warning(f"清理CUDA缓存失败: {str(e)}")
+                logging.warning(f"清理嵌入模型资源时出现警告: {str(e)}")
                 
             # 重置实例
             cls._instance = None
