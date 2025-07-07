@@ -5,6 +5,13 @@ from PyQt6.QtCore import QObject, pyqtSignal
 from pipeline import Pipeline
 from threads import ProcessingThread
 from processor.translation_history import TranslationHistory
+from typing import List, Dict, Any  # 若已经存在则保持
+
+# 尝试导入语义分类器（不存在时保持兼容）
+try:
+    from semantic_classifier import get_best_category  # type: ignore
+except Exception:
+    get_best_category = None
 
 class DataManager(QObject):
     """
@@ -144,6 +151,20 @@ class DataManager(QObject):
                 'multimodal', 'vldbench', 'multi-view', 'multimedia', 'rumor', 'falsehood',
                 'social media', 'twitter', 'weibo', 'factcheck', 'verification'
             ],
+            '事实查验': [
+                'fact checking', 'fact-checking', 'factcheck', 'verification', 'truth detection',
+                'claim verification', 'evidence verification', 'authenticity', 'fact verification',
+                'evidence-based', 'credibility assessment', 'misinformation detection', 
+                'truth assessment', 'factual accuracy', 'claim validation', 'debunking',
+                'fact extraction', 'evidence retrieval', 'source verification'
+            ],
+            'VLM': [
+                'vlm', 'vision language model', 'vision-language', 'multimodal language model',
+                'image captioning', 'visual question answering', 'vqa', 'visual reasoning',
+                'image-text', 'visual understanding', 'multimodal understanding', 'visual dialogue',
+                'image description', 'visual grounding', 'cross-modal', 'visual chatbot',
+                'multimodal chatbot', 'visual instruction', 'image analysis', 'visual ai'
+            ],
             '图神经网络': [
                 'graph', 'gnn', 'neural network', 'node generation', 'graph neural', 
                 'graph convolutional', 'gcn', 'graph attention', 'gat', 'message passing',
@@ -174,6 +195,19 @@ class DataManager(QObject):
                 'audio-visual', 'multimedia', 'fusion', 'alignment', 'clip', 'contrastive learning'
             ]
         }
+
+        # === 新增：语义嵌入分类（Sentence-BERT） ===
+        if get_best_category is not None:
+            try:
+                semantic_cat, semantic_score = get_best_category(
+                    f"{title} {content_text}", field_keywords
+                )
+                # 若语义置信度高于阈值，则直接返回该分类
+                if semantic_score >= 0.35:
+                    return semantic_cat
+            except Exception:
+                # 若语义分类器出错，则忽略，继续使用关键词法
+                pass
         
         # 记录每个领域的匹配分数
         scores = {field: 0 for field in field_keywords}
