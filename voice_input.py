@@ -1,7 +1,15 @@
+import os
+import gc
 import pyaudio
 from PyQt6.QtCore import QObject, pyqtSignal, QThread, QMutex, QMutexLocker
 from RealtimeSTT import AudioToTextRecorder
 from zhconv import convert
+
+# 设置Intel MKL环境变量以优化内存使用
+os.environ.setdefault('MKL_NUM_THREADS', '2')  # 限制MKL线程数减少内存竞争
+os.environ.setdefault('OMP_NUM_THREADS', '2')  # 限制OpenMP线程数
+os.environ.setdefault('MKL_DYNAMIC', 'TRUE')   # 启用动态线程调整
+os.environ.setdefault('PYTORCH_MKL_NUM_THREADS', '2')  # PyTorch MKL线程数
 
 class VoiceInputThread(QThread):
     """语音输入线程 - 使用QThread实现的长寿命线程"""
@@ -120,6 +128,19 @@ class VoiceInputThread(QThread):
                         print(f"关闭旧录音器失败: {str(e)}")
                     self.recorder = None
             
+            # 强制垃圾回收释放内存
+            print("清理内存...")
+            gc.collect()
+            
+            # 如果torch可用，清理GPU缓存
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                    torch.cuda.synchronize()
+            except ImportError:
+                pass
+            
             # 检查是否需要中止初始化
             should_abort = False
             with QMutexLocker(self.mutex):
@@ -130,22 +151,53 @@ class VoiceInputThread(QThread):
                 self.initialization_complete.emit(False)
                 return
                 
-            with QMutexLocker(self.mutex):
-                # 创建新录音器
-                self.recorder = AudioToTextRecorder(
-                    spinner=False,
-                    model='large-v2',
-                    language='zh',
-                    input_device_index=current_device,
-                    silero_sensitivity=0.5,
-                    silero_use_onnx=True,
-                    silero_deactivity_detection=True,
-                    webrtc_sensitivity=2,
-                    post_speech_silence_duration=0.3,
-                    no_log_file=True,
-                    on_vad_start=self._on_vad_start,
-                    on_vad_stop=self._on_vad_stop
-                )
+            # 尝试多次初始化，如果内存分配失败则重试
+            max_retries = 3
+            retry_count = 0
+            
+            while retry_count < max_retries:
+                try:
+                    with QMutexLocker(self.mutex):
+                        # 创建新录音器
+                        self.recorder = AudioToTextRecorder(
+                            spinner=False,
+                            model='large-v2',
+                            language='zh',
+                            input_device_index=current_device,
+                            silero_sensitivity=0.5,
+                            silero_use_onnx=True,
+                            silero_deactivity_detection=True,
+                            webrtc_sensitivity=2,
+                            post_speech_silence_duration=0.3,
+                            no_log_file=True,
+                            on_vad_start=self._on_vad_start,
+                            on_vad_stop=self._on_vad_stop
+                        )
+                    break  # 成功则跳出重试循环
+                    
+                except RuntimeError as e:
+                    if "mkl_malloc" in str(e):
+                        retry_count += 1
+                        print(f"MKL内存分配失败，第{retry_count}/{max_retries}次重试...")
+                        
+                        if retry_count < max_retries:
+                            # 等待并清理更多内存
+                            self.msleep(2000)  # 等待2秒
+                            gc.collect()
+                            
+                            # 更激进的内存清理
+                            try:
+                                import torch
+                                if torch.cuda.is_available():
+                                    torch.cuda.empty_cache()
+                                    torch.cuda.ipc_collect()
+                                    torch.cuda.synchronize()
+                            except ImportError:
+                                pass
+                        else:
+                            raise  # 最后一次重试失败，抛出异常
+                    else:
+                        raise  # 非MKL内存错误，直接抛出
                 
                 self.last_working_device = current_device
             

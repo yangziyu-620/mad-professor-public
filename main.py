@@ -1,10 +1,12 @@
 import sys
+import atexit
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtGui import QFontDatabase, QFont, QPalette, QColor, QIcon, QPixmap, QPainter, QBrush, QLinearGradient
 from PyQt6.QtCore import Qt, QRect, QPoint
 from paths import get_font_path
 from AI_professor_UI import AIProfessorUI
 from utils.memory_monitor import start_global_monitoring, get_quick_memory_info
+from config import cleanup_all_resources
 
 def generate_app_icon():
     """生成应用程序图标"""
@@ -123,6 +125,28 @@ if __name__ == '__main__':
     memory_monitor.memory_warning.connect(on_memory_warning)
     memory_monitor.memory_critical.connect(on_memory_critical)
     
-    window = AIProfessorUI()
-    window.show()
-    sys.exit(app.exec())
+    # 注册资源清理函数，确保程序退出时清理资源
+    atexit.register(cleanup_all_resources)
+    
+    try:
+        window = AIProfessorUI()
+        window.show()
+        
+        # 定期检查嵌入模型是否需要清理
+        from PyQt6.QtCore import QTimer
+        from config import EmbeddingModel
+        
+        cleanup_timer = QTimer()
+        cleanup_timer.timeout.connect(EmbeddingModel.cleanup_if_idle)
+        cleanup_timer.start(60000)  # 每60秒检查一次
+        
+        result = app.exec()
+        
+    except Exception as e:
+        print(f"应用程序运行出错: {str(e)}")
+        result = 1
+    finally:
+        # 确保资源被清理
+        cleanup_all_resources()
+    
+    sys.exit(result)

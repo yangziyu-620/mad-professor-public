@@ -11,3 +11,4 @@ pymdown-extensions
 zhconv
 RealtimeSTT
 pyaudio
+sentence-transformers>=2.5.1

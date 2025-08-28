@@ -926,3 +926,24 @@ class RagRetriever(QObject):
         except Exception as e:
             print(f"[ERROR] 构建章节标题失败: {str(e)}")
             return f"章节 {path}"
+    
+    def cleanup(self):
+        """清理所有资源"""
+        try:
+            print("[INFO] 开始清理RAG检索器资源...")
+            
+            # 停止加载线程
+            if self.loading_thread and self.loading_thread.isRunning():
+                self.loading_thread.requestInterruption()
+                self.loading_thread.wait(1000)  # 等待最多1秒
+            
+            # 清理所有缓存
+            self.clear_cache()
+            
+            # 清理路径映射
+            self.paper_vector_paths.clear()
+            
+            print("[INFO] RAG检索器资源清理完成")
+            
+        except Exception as e:
+            print(f"[WARNING] RAG检索器清理资源时出现警告: {str(e)}")

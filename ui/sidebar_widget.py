@@ -1,10 +1,163 @@
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, 
                            QListWidget, QListWidgetItem, QLabel, QFrame, QTreeWidget, QTreeWidgetItem,
-                           QMenu, QInputDialog, QMessageBox)
+                           QMenu, QInputDialog, QMessageBox, QDialog, QComboBox, QLineEdit)
 from PyQt6.QtCore import Qt, QPropertyAnimation, QEasingCurve, pyqtSignal
 from PyQt6.QtGui import QFont, QBrush, QColor
 
 from ui.upload_widget import UploadWidget  # 导入上传文件窗口类
+
+
+class FieldEditDialog(QDialog):
+    """论文分类编辑对话框"""
+    
+    def __init__(self, paper_title, current_field, existing_fields, parent=None):
+        super().__init__(parent)
+        self.current_field = current_field
+        self.existing_fields = existing_fields
+        self.setup_ui(paper_title)
+        
+    def setup_ui(self, paper_title):
+        self.setWindowTitle("编辑论文分类")
+        self.setFixedSize(450, 200)
+        self.setModal(True)
+        
+        layout = QVBoxLayout(self)
+        layout.setSpacing(15)
+        layout.setContentsMargins(20, 20, 20, 20)
+        
+        # 论文标题显示
+        title_label = QLabel(f"论文: {paper_title}")
+        title_label.setStyleSheet("""
+            QLabel {
+                font-weight: bold;
+                font-size: 12px;
+                color: #2c3e50;
+                padding: 5px;
+                background-color: #f8f9fa;
+                border-radius: 4px;
+            }
+        """)
+        title_label.setWordWrap(True)
+        layout.addWidget(title_label)
+        
+        # 分类选择区域
+        field_layout = QVBoxLayout()
+        
+        field_label = QLabel("选择分类:")
+        field_label.setStyleSheet("font-weight: bold; font-size: 11px;")
+        field_layout.addWidget(field_label)
+        
+        # 下拉框选择现有分类
+        self.field_combo = QComboBox()
+        self.field_combo.setStyleSheet("""
+            QComboBox {
+                padding: 8px;
+                border: 2px solid #ddd;
+                border-radius: 4px;
+                font-size: 11px;
+                background-color: white;
+            }
+            QComboBox:focus {
+                border-color: #1a237e;
+            }
+            QComboBox::drop-down {
+                border: none;
+            }
+            QComboBox::down-arrow {
+                width: 12px;
+                height: 12px;
+            }
+        """)
+        
+        # 添加现有分类选项
+        sorted_fields = sorted(self.existing_fields)
+        for field in sorted_fields:
+            self.field_combo.addItem(field)
+        
+        # 设置当前分类为默认选择
+        current_index = self.field_combo.findText(self.current_field)
+        if current_index >= 0:
+            self.field_combo.setCurrentIndex(current_index)
+        
+        field_layout.addWidget(self.field_combo)
+        
+        # 自定义输入选项
+        custom_label = QLabel("或输入新分类:")
+        custom_label.setStyleSheet("font-weight: bold; font-size: 11px; margin-top: 10px;")
+        field_layout.addWidget(custom_label)
+        
+        self.custom_field_input = QLineEdit()
+        self.custom_field_input.setPlaceholderText("输入新的分类名称...")
+        self.custom_field_input.setStyleSheet("""
+            QLineEdit {
+                padding: 8px;
+                border: 2px solid #ddd;
+                border-radius: 4px;
+                font-size: 11px;
+                background-color: white;
+            }
+            QLineEdit:focus {
+                border-color: #1a237e;
+            }
+        """)
+        field_layout.addWidget(self.custom_field_input)
+        
+        layout.addLayout(field_layout)
+        
+        # 按钮区域
+        button_layout = QHBoxLayout()
+        button_layout.addStretch()
+        
+        self.cancel_button = QPushButton("取消")
+        self.cancel_button.setStyleSheet("""
+            QPushButton {
+                padding: 8px 20px;
+                border: 2px solid #6c757d;
+                border-radius: 4px;
+                background-color: white;
+                color: #6c757d;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #6c757d;
+                color: white;
+            }
+        """)
+        self.cancel_button.clicked.connect(self.reject)
+        
+        self.ok_button = QPushButton("确定")
+        self.ok_button.setStyleSheet("""
+            QPushButton {
+                padding: 8px 20px;
+                border: 2px solid #1a237e;
+                border-radius: 4px;
+                background-color: #1a237e;
+                color: white;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #0d47a1;
+                border-color: #0d47a1;
+            }
+        """)
+        self.ok_button.clicked.connect(self.accept)
+        self.ok_button.setDefault(True)
+        
+        button_layout.addWidget(self.cancel_button)
+        button_layout.addWidget(self.ok_button)
+        
+        layout.addLayout(button_layout)
+        
+    def get_selected_field(self):
+        """获取选择的分类"""
+        # 优先使用自定义输入的分类
+        custom_field = self.custom_field_input.text().strip()
+        if custom_field:
+            return custom_field
+        
+        # 否则使用下拉框选择的分类
+        return self.field_combo.currentText()
+
 
 class SidebarWidget(QWidget):
     """可折叠侧边栏"""
@@ -507,21 +660,35 @@ class SidebarWidget(QWidget):
         if action == edit_field_action:
             self.edit_paper_field(paper)
     
+    def get_existing_fields(self):
+        """获取现有的所有分类"""
+        if not hasattr(self, 'last_papers_index') or not self.last_papers_index:
+            return ['未分类']
+        
+        fields = set()
+        for paper in self.last_papers_index:
+            field = paper.get('field', '未分类')
+            if field:
+                fields.add(field)
+        
+        return list(fields) if fields else ['未分类']
+    
     def edit_paper_field(self, paper):
         """编辑论文领域分类"""
         current_field = paper.get('field', '未分类')
         paper_id = paper.get('id', '')
+        paper_title = paper.get('translated_title', '') or paper.get('title', '') or paper_id
         
-        # 弹出输入对话框
-        new_field, ok = QInputDialog.getText(
-            self, 
-            "编辑论文领域", 
-            f"请输入论文「{paper.get('translated_title', '')}」的新领域分类：",
-            text=current_field
-        )
+        # 获取现有的所有分类
+        existing_fields = self.get_existing_fields()
         
-        # 用户点击确定且输入不为空时，发出更新信号
-        if ok and new_field and new_field.strip() != '':
-            self.update_paper_field.emit(paper_id, new_field.strip())
-        elif ok and (not new_field or new_field.strip() == ''):
-            QMessageBox.warning(self, "警告", "领域分类不能为空！", QMessageBox.StandardButton.Ok)
+        # 显示自定义分类编辑对话框
+        dialog = FieldEditDialog(paper_title, current_field, existing_fields, self)
+        
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            new_field = dialog.get_selected_field()
+            
+            if new_field and new_field.strip():
+                self.update_paper_field.emit(paper_id, new_field.strip())
+            else:
+                QMessageBox.warning(self, "警告", "领域分类不能为空！", QMessageBox.StandardButton.Ok)
