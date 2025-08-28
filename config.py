@@ -376,6 +376,9 @@ class LLMClient:
 # 嵌入模型
 class EmbeddingModel:
     _instance: Optional[HuggingFaceEmbeddings] = None
+    _device: Optional[str] = None
+    _last_access_time: float = 0
+    _cleanup_threshold: float = 300  # 5分钟未使用则清理
     
     @classmethod
     def get_instance(cls) -> HuggingFaceEmbeddings:
@@ -384,9 +387,13 @@ class EmbeddingModel:
         Returns:
             HuggingFaceEmbeddings: 嵌入模型实例
         """
+        import time
+        cls._last_access_time = time.time()
+        
         if cls._instance is None:
             # 优先使用GPU加速，如果可用的话
             device = "cuda" if cls._is_gpu_available() else "cpu"
+            cls._device = device
             
             logging.info(f"初始化嵌入模型 {EMBEDDING_MODEL_NAME}，使用设备: {device}")
             
@@ -403,6 +410,7 @@ class EmbeddingModel:
                 if device == "cuda":
                     logging.warning(f"GPU初始化失败: {str(e)}，尝试使用CPU")
                     try:
+                        cls._device = "cpu"
                         cls._instance = HuggingFaceEmbeddings(
                             model_name=EMBEDDING_MODEL_NAME,
                             model_kwargs={"device": "cpu"},
@@ -426,37 +434,65 @@ class EmbeddingModel:
             force_cpu: 是否强制使用CPU，即使GPU可用
         """
         if cls._instance is not None:
-            # 保存原设备信息用于日志
-            old_device = getattr(cls._instance, "_device", "未知")
+            old_device = cls._device or "未知"
             
-            # 清理旧实例
+            # 深度清理模型资源
             try:
-                # 尝试清理模型相关的内存
+                # 尝试访问并清理HuggingFace模型的内部组件
                 if hasattr(cls._instance, 'client'):
-                    del cls._instance.client
+                    # 清理HuggingFace transformers客户端
+                    client = cls._instance.client
+                    if hasattr(client, 'model'):
+                        model = client.model
+                        # 将模型移到CPU并清理
+                        if hasattr(model, 'to'):
+                            model.to('cpu')
+                        if hasattr(model, 'eval'):
+                            model.eval()
+                        del model
+                    if hasattr(client, 'tokenizer'):
+                        del client.tokenizer
+                    del client
+                    
+                # 清理langchain包装器本身
                 if hasattr(cls._instance, 'model'):
                     del cls._instance.model
-                    
-                # 显式删除实例
+                if hasattr(cls._instance, 'tokenizer'):
+                    del cls._instance.tokenizer
+                if hasattr(cls._instance, 'encode_kwargs'):
+                    del cls._instance.encode_kwargs
+                if hasattr(cls._instance, 'model_kwargs'):
+                    del cls._instance.model_kwargs
+                
+                # 删除实例引用
                 del cls._instance
                 
-                # 强制垃圾回收
+                # 多重垃圾回收确保彻底清理
                 import gc
-                gc.collect()
+                for _ in range(3):
+                    gc.collect()
                 
-                # 尝试清理CUDA内存
+                # 清理CUDA缓存和同步
                 import torch
                 if torch.cuda.is_available():
+                    # 强制清理所有未使用的缓存内存
                     torch.cuda.empty_cache()
-                    # 确保所有CUDA操作完成
+                    torch.cuda.ipc_collect()
+                    # 同步所有CUDA操作
                     torch.cuda.synchronize()
-                    logging.info("已清理CUDA缓存")
+                    
+                    # 获取清理后的显存状态
+                    allocated = torch.cuda.memory_allocated(0) / (1024**3)
+                    reserved = torch.cuda.memory_reserved(0) / (1024**3)
+                    logging.info(f"CUDA缓存清理完成 - 已分配: {allocated:.2f}GB, 已保留: {reserved:.2f}GB")
                     
             except Exception as e:
                 logging.warning(f"清理嵌入模型资源时出现警告: {str(e)}")
                 
-            # 重置实例
+            # 重置所有状态
             cls._instance = None
+            cls._device = None
+            cls._last_access_time = 0
             logging.info(f"已重置嵌入模型实例 (原设备: {old_device})")
             
             # 如果强制使用CPU，先修改设备检测方法
@@ -492,23 +528,95 @@ class EmbeddingModel:
             import torch
             if torch.cuda.is_available():
                 # 检查GPU可用显存
-                free_memory = torch.cuda.get_device_properties(0).total_memory - torch.cuda.memory_allocated(0)
+                total_memory = torch.cuda.get_device_properties(0).total_memory
+                allocated_memory = torch.cuda.memory_allocated(0)
+                reserved_memory = torch.cuda.memory_reserved(0)
+                
+                # 使用reserved而不是allocated来计算真实可用内存
+                free_memory = total_memory - reserved_memory
                 free_gb = free_memory / (1024**3)
                 
                 # 对于BGE-m3模型，至少需要4GB显存
                 min_required_gb = 4.0
                 
                 if free_gb >= min_required_gb:
-                    logging.info(f"GPU显存充足 (可用: {free_gb:.2f}GB, 需要: {min_required_gb:.2f}GB)")
+                    logging.info(f"GPU显存充足 (可用: {free_gb:.2f}GB, 已保留: {reserved_memory/(1024**3):.2f}GB, 需要: {min_required_gb:.2f}GB)")
                     return True
                 else:
-                    logging.warning(f"GPU显存不足 (可用: {free_gb:.2f}GB, 需要: {min_required_gb:.2f}GB)，切换到CPU模式")
+                    logging.warning(f"GPU显存不足 (可用: {free_gb:.2f}GB, 已保留: {reserved_memory/(1024**3):.2f}GB, 需要: {min_required_gb:.2f}GB)，切换到CPU模式")
                     return False
             else:
                 return False
         except Exception as e:
             logging.warning(f"检查GPU状态时出错: {str(e)}")
             return False
+    
+    @classmethod
+    def cleanup_if_idle(cls):
+        """如果模型空闲超过阈值时间，自动清理"""
+        import time
+        if cls._instance is not None and cls._last_access_time > 0:
+            idle_time = time.time() - cls._last_access_time
+            if idle_time > cls._cleanup_threshold:
+                logging.info(f"嵌入模型空闲 {idle_time:.1f}秒，自动清理")
+                cls.reset_instance()
+                return True
+        return False
+    
+    @classmethod
+    def force_cleanup(cls):
+        """强制清理嵌入模型和显存"""
+        logging.info("强制清理嵌入模型资源")
+        cls.reset_instance()
+        
+        # 额外的显存清理
+        try:
+            import torch
+            import gc
+            
+            # 多轮垃圾回收
+            for i in range(5):
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                    torch.cuda.synchronize()
+            
+            if torch.cuda.is_available():
+                # 获取清理后状态
+                allocated = torch.cuda.memory_allocated(0) / (1024**3)
+                reserved = torch.cuda.memory_reserved(0) / (1024**3)
+                logging.info(f"强制清理完成 - 已分配: {allocated:.2f}GB, 已保留: {reserved:.2f}GB")
+                
+        except Exception as e:
+            logging.warning(f"强制清理时出错: {str(e)}")
+
+# 全局资源清理函数
+def cleanup_all_resources():
+    """清理所有全局资源，在应用程序退出时调用"""
+    logging.info("开始清理所有全局资源...")
+    
+    try:
+        # 清理嵌入模型
+        EmbeddingModel.force_cleanup()
+        
+        # 清理其他可能的全局资源
+        import gc
+        import torch
+        
+        # 多轮垃圾回收
+        for i in range(3):
+            gc.collect()
+        
+        # 清理CUDA资源
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            torch.cuda.ipc_collect()
+            torch.cuda.synchronize()
+        
+        logging.info("全局资源清理完成")
+        
+    except Exception as e:
+        logging.warning(f"清理全局资源时出现警告: {str(e)}")
 
 # 使用示例
 if __name__ == "__main__":
@@ -516,18 +624,23 @@ if __name__ == "__main__":
     setup_logging()
     logger = logging.getLogger(__name__)
     
-    # LLM客户端示例
-    logger.info("测试LLM客户端...")
-    llm = LLMClient()
-    messages = [
-        {"role": "user", "content": "你好"}
-    ]
-    response = llm.chat(messages)
-    logger.info(f"LLM响应: {response}")
-    
-    # 嵌入模型示例
-    logger.info("测试嵌入模型...")
-    text = "这是一个测试文本"
-    embedding_model = EmbeddingModel.get_instance()
-    embedding = embedding_model.embed_query(text)
-    logger.info(f"嵌入向量维度: {len(embedding)}")
+    try:
+        # LLM客户端示例
+        logger.info("测试LLM客户端...")
+        llm = LLMClient()
+        messages = [
+            {"role": "user", "content": "你好"}
+        ]
+        response = llm.chat(messages)
+        logger.info(f"LLM响应: {response}")
+        
+        # 嵌入模型示例
+        logger.info("测试嵌入模型...")
+        text = "这是一个测试文本"
+        embedding_model = EmbeddingModel.get_instance()
+        embedding = embedding_model.embed_query(text)
+        logger.info(f"嵌入向量维度: {len(embedding)}")
+        
+    finally:
+        # 确保资源被清理
+        cleanup_all_resources()

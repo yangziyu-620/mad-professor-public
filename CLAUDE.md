@@ -39,9 +39,24 @@ python main.py
 ```
 
 ### Development Commands
+```bash
+# Run the application
+python main.py
+# or
+start.bat  # Windows only
+
+# Download required models
+python download_models.py
+
+# Process papers (automatic when placing PDFs in data/ folder)
+# Papers are processed through the UI import workflow
+```
+
+### Development Principles
+- **Minimal Modification**: Always preserve existing functionality when adding new features
+- **Documentation First**: Check library documentation before modifications
+- **Version Matching**: Ensure library and documentation versions match
 - No specific linting, testing, or formatting commands are configured in this project
-- Follow the "minimal modification principle" - preserve existing functionality when adding new features
-- Check library documentation before making changes, matching library and documentation versions
 
 ## Code Architecture
 
@@ -82,14 +97,15 @@ python main.py
 - Whisper model downloads automatically on first voice input use
 
 ### Key Development Principles (from Cursor rules)
-1. **Minimal Modification**: Always preserve existing functionality when adding new features
-2. **Documentation First**: Check library documentation before modifications
-3. **Version Matching**: Ensure library and documentation versions match
+1. **Minimal Modification**: Always preserve existing functionality when adding new features - guarantee project operability without introducing new bugs
+2. **Documentation First**: For difficult problems, first check what libraries the code uses, then use Context7 to carefully review code documentation before making changes
+3. **Version Matching**: Ensure library and documentation versions match when making modifications
 
 ### Adding New Features
-- New AI personalities: Add prompt file in `prompt/ai_character_prompt_[name].txt`
-- New processors: Add to `processor/` directory and integrate via `pipeline.py`
-- UI components: Add to `ui/` directory following PyQt6 patterns
+- **New AI personalities**: Add prompt file in `prompt/ai_character_prompt_[name].txt` and update `AI_CHARACTER_PROMPT_PATH` in `AI_professor_chat.py`
+- **New processors**: Add to `processor/` directory and integrate via `pipeline.py` orchestration
+- **UI components**: Add to `ui/` directory following PyQt6 patterns
+- **New APIs**: Update `api_config.json` and modify `AI_manager.py` for new LLM providers
 
 ## Common Tasks
 
@@ -108,6 +124,18 @@ python main.py
 - Each paper has subdirectories for different processing stages
 - Log files and error messages are typically printed to console
 
+### Error Handling and Debugging
+- **Processing errors**: Check `output/` directory for intermediate results and error logs
+- **API errors**: Verify `api_config.json` configuration and API key validity
+- **Voice input issues**: Ensure proper audio device selection and avoid speaker feedback (use headphones)
+- **CUDA errors**: Verify GPU setup and `magic-pdf.json` device mode configuration
+- **Model loading errors**: Run `python download_models.py` to ensure all models are properly downloaded
+
+### Configuration Management
+- **API Configuration**: Use `api_config.json` (auto-generated from template) for API keys
+- **Model Configuration**: Check user directory's `magic-pdf.json` for model paths and device settings
+- **Processing Pipeline**: Each paper processing stage creates subdirectories in `output/`
+
 ## Technical Notes
 
 ### Dependencies
@@ -122,7 +150,21 @@ python main.py
 - CUDA support required
 - Configure `device-mode: "cuda"` in user's `magic-pdf.json`
 
+### Processing Pipeline Details
+- **Stage 1**: PDF → Markdown (via MinerU)
+- **Stage 2**: Translation (Chinese ↔ English)
+- **Stage 3**: JSON structuring and content parsing
+- **Stage 4**: RAG indexing and vector embedding
+- **Stage 5**: UI display preparation and content loading
+
+### Multi-threading Architecture
+- **UI Thread**: PyQt6 main interface (non-blocking)
+- **Processing Thread**: PDF processing and AI operations
+- **Voice Thread**: Real-time speech recognition
+- **TTS Thread**: Audio playback and synthesis
+
 ### Known Limitations
-- Optimized for academic paper PDFs only
+- Optimized for academic paper PDFs only (non-academic PDFs may fail)
 - Voice input may capture AI's own speech when using speakers (use headphones)
 - Processing large PDFs may take significant time
+- Audio device switching may fail if done while microphone is active

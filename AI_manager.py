@@ -405,18 +405,43 @@ class AIManager(QObject):
     
     def cleanup(self):
         """清理所有资源"""
-        # 停止TTS
-        if hasattr(self, 'tts_manager'):
-            self.tts_manager.stop()
+        print("[INFO] AI Manager 开始清理资源...")
         
-        # 停止语音识别
-        if self.voice_input:
-            self.voice_input.cleanup()
-        
-        # 停止AI响应线程
-        if self.ai_response_thread and self.ai_response_thread.isRunning():
-            self.ai_response_thread.requestInterruption()
-            self.ai_response_thread.wait()
+        try:
+            # 停止TTS
+            if hasattr(self, 'tts_manager'):
+                self.tts_manager.stop()
+            
+            # 停止语音识别
+            if self.voice_input:
+                self.voice_input.cleanup()
+            
+            # 停止AI响应线程
+            if self.ai_response_thread and self.ai_response_thread.isRunning():
+                self.ai_response_thread.requestInterruption()
+                self.ai_response_thread.wait(2000)  # 等待最多2秒
+            
+            # 清理RAG检索器
+            if hasattr(self, 'retriever') and self.retriever:
+                self.retriever.cleanup()
+                self.retriever = None
+            
+            # 清理AI聊天对象
+            if hasattr(self, 'ai_chat') and self.ai_chat:
+                self.ai_chat = None
+            
+            # 清理缓存数据
+            self.pending_sentences.clear()
+            self.accumulated_response = ""
+            
+            # 触发嵌入模型清理
+            from config import EmbeddingModel
+            EmbeddingModel.cleanup_if_idle()
+            
+            print("[INFO] AI Manager 资源清理完成")
+            
+        except Exception as e:
+            print(f"[WARNING] AI Manager 清理资源时出现警告: {str(e)}")
 
     def init_rag_retriever(self, base_path):
         """在后台初始化RAG检索器"""
